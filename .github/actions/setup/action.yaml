@@ -1,0 +1,71 @@
+name: Set up build
+description: >-
+  Expects upstream podman checked out at a release tag in the workspace root and this
+  repository in .build/. Hides .build/ from git, so goreleaser sees a clean upstream
+  checkout, and installs Go, zig, a static libseccomp, syft and goreleaser.
+
+inputs:
+  version:
+    description: Upstream tag being built, e.g. v6.1.4
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # setup-zig keeps zig's caches in .zig-cache/ of the workspace.
+    - name: Hide .build from git
+      shell: bash
+      run: |
+        printf '/.build/\n/dist/\n/.zig-cache/\n' >> .git/info/exclude
+        if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+          git status --short --untracked-files=all
+          echo "::error::upstream checkout is not clean"
+          exit 1
+        fi
+
+    # The newest Go, except where it breaks a release's pinned dependencies.
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: stable
+        check-latest: true
+        cache: false
+
+    # Never switch to the toolchain named in go.mod. MODULE is upstream's module path,
+    # which moved from github.com/containers/podman/v5 to go.podman.io/podman/v6.
+    - name: Pin Go toolchain
+      shell: bash
+      run: |
+        {
+          echo GOTOOLCHAIN=local
+          echo "MODULE=$(go mod edit -json | jq -r .Module.Path)"
+        } >> "$GITHUB_ENV"
+
+    # C compiler for both architectures, with musl for static linking.
+    - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+      with:
+        version: 0.17.0
+        use-cache: false
+
+    # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
+    - name: Build libseccomp
+      shell: bash
+      env:
+        # renovate: datasource=github-releases depName=seccomp/libseccomp
+        LIBSECCOMP_VERSION: 2.6.0
+        LIBSECCOMP_SHA256: 83b6085232d1588c379dc9b9cae47bb37407cf262e6e74993c61ba72d2a784dc
+      run: | # zizmor: ignore[github-env]
+        sudo apt-get install -y --no-install-recommends gperf
+        tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION}.tar.gz"
+        curl -fsSL -o "${tarball}" \
+          "https://github.com/seccomp/libseccomp/releases/download/v${LIBSECCOMP_VERSION}/libseccomp-${LIBSECCOMP_VERSION}.tar.gz"
+        echo "${LIBSECCOMP_SHA256}  ${tarball}" | sha256sum --check --strict
+        .build/hack/build-libseccomp.sh "${tarball}" "${RUNNER_TEMP}/sysroot"
+        echo "SYSROOT=${RUNNER_TEMP}/sysroot" >> "$GITHUB_ENV"
+
+    - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+
+    - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+      with:
+        distribution: goreleaser
+        version: v2.18.3
+        install-only: true

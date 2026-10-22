@@ -1,0 +1,52 @@
+name: sync
+
+# Tags every upstream release (hack/upstream-releases.sh) that is not tagged here yet
+# and starts release.yaml for it. Tags created with GITHUB_TOKEN do not trigger
+# workflows, so the release is dispatched.
+#
+# Does nothing until the repository variable RELEASES_ENABLED is set to true (Settings,
+# Secrets and variables, Actions, Variables), so main can be merged before releasing.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: vars.RELEASES_ENABLED == 'true'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write # create tags
+      actions: write # dispatch release.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tag and dispatch releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -o pipefail
+          tags="$(hack/upstream-releases.sh)"
+          for tag in ${tags}; do
+            if gh api "repos/${GH_REPO}/git/ref/tags/${tag}" --silent 2>/dev/null; then
+              continue
+            fi
+            echo "Tagging ${tag} at ${GITHUB_SHA}"
+            gh api --method POST "repos/${GH_REPO}/git/refs" \
+              -f "ref=refs/tags/${tag}" \
+              -f "sha=${GITHUB_SHA}"
+            gh workflow run release.yaml --ref "${tag}"
+          done
