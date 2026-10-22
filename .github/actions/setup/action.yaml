@@ -46,13 +46,14 @@ runs:
         version: 0.17.0
         use-cache: false
 
+    # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
     - name: Build libseccomp
       shell: bash
       env:
         # renovate: datasource=github-releases depName=seccomp/libseccomp
         LIBSECCOMP_VERSION: 2.6.0
         LIBSECCOMP_SHA256: 83b6085232d1588c379dc9b9cae47bb37407cf262e6e74993c61ba72d2a784dc
-      run: |
+      run: | # zizmor: ignore[github-env]
         sudo apt-get install -y --no-install-recommends gperf
         tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION}.tar.gz"
         curl -fsSL -o "${tarball}" \

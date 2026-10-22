@@ -134,11 +134,12 @@ they cannot be built verifiably.
    newest release of a minor, `vX` and `latest` for upstream's latest release.
 3. Before anything is published, [`test.yaml`](.github/workflows/test.yaml) builds the
    release and runs [`hack/functional-test.sh`](hack/functional-test.sh) against the
-   amd64 binaries in a privileged Fedora container with Fedora's conmon, crun,
-   netavark, aardvark-dns and passt, as root and rootless: run, seccomp, bridge
-   network with DNS, published ports, pods, `podman build`, quadlet and
-   `podman-remote` against the API service. Upstream's own system and e2e tests are
-   not run, because they expect upstream's test VM setup.
+   amd64 binaries in a privileged container of upstream's `quay.io/podman/stable`
+   image of the same version, whose conmon, crun, netavark, aardvark-dns and passt
+   match that release (Fedora's as a fallback). It tests as root and rootless: run,
+   seccomp, bridge network with DNS, published ports, pods, `podman build`, quadlet
+   and `podman-remote` against the API service. Upstream's own system and end-to-end
+   tests are not run, because they expect upstream's test VM setup.
 4. [`ci.yaml`](.github/workflows/ci.yaml) runs `test.yaml` for the newest release of every
    minor version on pull requests.
 
@@ -166,7 +167,7 @@ gh workflow run release.yaml --ref v6.1.4
   `CGO_ENABLED=1`, zig as C compiler targeting musl (`zig cc -target
   <arch>-linux-musl`), a static libseccomp built the same way, and `-extldflags
   '-static -s'`. SQLite is the copy bundled with go-sqlite3. zig cross-compiles, so both
-  architectures are built in one goreleaser run on an amd64 runner.
+  architectures are built by one goreleaser run on an amd64 runner.
 - `podman-remote`, `quadlet` and `rootlessport` need no C code and are built with
   `CGO_ENABLED=0`, like upstream's `podman-remote-static`.
 - Build tags for `podman`: `seccomp apparmor grpcnotrace containers_image_openpgp

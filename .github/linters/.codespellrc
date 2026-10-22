@@ -1,0 +1,3 @@
+[codespell]
+# passt is the user-mode networking tool podman uses for rootless containers.
+ignore-words-list = passt

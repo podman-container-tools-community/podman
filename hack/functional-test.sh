@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
-# Exercises a built podman with the runtime helpers of a current distribution:
+# Exercises a built podman with matching runtime helpers:
 #   hack/functional-test.sh <dist dir>
-# Starts a privileged Fedora container (needs docker and network access to quay.io),
-# installs conmon, crun, netavark, aardvark-dns and passt there, puts the amd64
-# binaries from <dist dir> in place and runs the tests as root and rootless.
+# Starts a privileged container of upstream's quay.io/podman/stable image for the
+# same version (needs docker and network access to quay.io), which brings conmon,
+# crun, netavark, aardvark-dns and passt in versions that release was built for;
+# Podman 6 needs netavark 2. Falls back to Fedora's helpers when that image is
+# missing. Puts the amd64 binaries from <dist dir> in place and runs the tests as root
+# and rootless.
 set -euo pipefail
 
-FEDORA_IMAGE="${FEDORA_IMAGE:-registry.fedoraproject.org/fedora:43}"
 IMAGE=quay.io/libpod/alpine:latest
 
 if [[ "$1" != --inside ]]; then
+  dist="$(realpath "$1")"
+  version="$("${dist}/podman_linux_amd64_v1/podman" --version | awk '{print $3}')"
+  base="quay.io/podman/stable:v${version}"
+  if ! docker pull -q "${base}"; then
+    base=registry.fedoraproject.org/fedora:43
+  fi
+  echo "+ testing podman ${version} in ${base}" >&2
   # Anonymous volumes keep container storage off the overlay root filesystem.
   exec docker run --rm --privileged --cgroupns=private \
-    -v "$(realpath "$1"):/dist:ro" \
+    -v "${dist}:/dist:ro" \
     -v "$(realpath "$0"):/functional-test.sh:ro" \
     -v /var/lib/containers -v /home \
-    "${FEDORA_IMAGE}" /functional-test.sh --inside
+    "${base}" /functional-test.sh --inside
 fi
 
-echo "+ installing runtime helpers" >&2
+echo "+ installing runtime helpers (no-op where the image has them)" >&2
 dnf install -y -q --setopt=install_weak_deps=False \
   catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils jq >/dev/null
 install -m 755 /dist/podman_linux_amd64_v1/podman /usr/bin/podman
@@ -50,11 +59,13 @@ tests() {
   # The default seccomp profile is applied (mode 2: filter).
   run run --rm "${IMAGE}" grep -E '^Seccomp:\s+2' /proc/self/status
 
-  # Bridge network with DNS (netavark, aardvark-dns) and a published port.
+  # Bridge network with DNS (netavark, aardvark-dns) and a published port, served by
+  # busybox nc.
   run network create testnet >/dev/null
-  run run -d --name web --network testnet -p 8080:8080 "${IMAGE}" httpd -f -p 8080 >/dev/null
-  { run run --rm --network testnet "${IMAGE}" wget -q -O /dev/null -T 5 http://web:8080/ 2>&1 || true; } | grep -q 404
-  curl -s -o /dev/null -w '%{http_code}' --retry 5 --retry-connrefused http://127.0.0.1:8080/ | grep -qx 404
+  run run -d --name web --network testnet -p 8080:8080 "${IMAGE}" \
+    sh -c 'while true; do printf "HTTP/1.0 200 OK\r\n\r\nok\n" | nc -l -p 8080; done' >/dev/null
+  test "$(run run --rm --network testnet "${IMAGE}" wget -q -T 5 -O - http://web:8080/)" = ok
+  test "$(curl -s --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/)" = ok
   run rm -f -t 0 web >/dev/null
   run network rm testnet >/dev/null
 
