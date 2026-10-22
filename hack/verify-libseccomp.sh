@@ -21,9 +21,9 @@ export GNUPGHOME
 trap 'rm -rf "${GNUPGHOME}"' EXIT
 
 gpg --batch --quiet --import "${keys}"
-# Primary key fingerprints only: each fpr record that follows a pub record.
+# Primary key fingerprints only: the fingerprint record that follows each pub record.
 imported="$(gpg --batch --with-colons --list-keys |
-  awk -F: '$1 == "fpr" && prev == "pub" { print $10 } { prev = $1 }' | sort)"
+  awk -F: '$1 == "fpr" && prev == "pub" { print $10 } { prev = $1 }' | sort)" # codespell:ignore fpr
 if [[ "${imported}" != "$(printf '%s\n' "${fingerprints[@]}" | sort)" ]]; then
   echo "${keys}: expected exactly the keys ${fingerprints[*]}, got:" >&2
   echo "${imported}" >&2
