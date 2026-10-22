@@ -155,8 +155,10 @@ they cannot be built verifiably.
    aardvark-dns and passt match that release. Without such a tag it uses Fedora 43 for
    Podman 5 and Fedora rawhide for newer releases. It tests as root and rootless: run,
    seccomp, bridge network with DNS, published ports, pods, `podman build`, quadlet
-   and `podman-remote` against the API service. Upstream's own system and end-to-end
-   tests are not run, because they expect upstream's test VM setup.
+   and `podman-remote` against the API service. [`hack/image-test.sh`](hack/image-test.sh)
+   then builds the image for both architectures and runs the amd64 one as root and
+   rootless: run, bridge network with DNS and a published port. Upstream's own system
+   and end-to-end tests are not run, because they expect upstream's test VM setup.
 4. [`ci.yaml`](.github/workflows/ci.yaml) runs `test.yaml` for the newest release of every
    minor version on pull requests.
 
@@ -319,6 +321,7 @@ hack/upstream-releases.sh            upstream releases to build
 hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
 hack/functional-test.sh              functional tests for the built binaries
+hack/image-test.sh                   builds the image from dist/ and tests it
 .github/actions/setup/               hide .build/ from Git, install Go, zig, libseccomp, syft, goreleaser
 .github/workflows/test.yaml          build one release, run functional tests
 .github/workflows/ci.yaml            pull requests: test.yaml for newest release per minor

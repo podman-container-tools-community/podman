@@ -1,7 +1,8 @@
 name: test
 
-# Builds one upstream release without publishing anything and runs functional tests
-# (hack/functional-test.sh) against the amd64 binaries.
+# Builds one upstream release without publishing anything, runs functional tests
+# (hack/functional-test.sh) against the amd64 binaries and tests the image
+# (hack/image-test.sh).
 #
 # Upstream's system and e2e tests are not run: they expect a test VM set up by
 # upstream's CI and a matching podman-testing binary, so they fail for reasons
@@ -60,3 +61,10 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           .build/hack/functional-test.sh dist
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Builds the image for both architectures from dist/ as goreleaser would (no
+      # emulation needed) and runs the amd64 one as root and rootless.
+      - name: Image tests
+        run: .build/hack/image-test.sh dist
