@@ -42,24 +42,21 @@ builds:
       # Setting CGO_CFLAGS replaces Go's default "-O2 -g"; without -O2 zig compiles in
       # debug mode with the UBSan runtime, whose symbols nothing provides.
       - CGO_CFLAGS=-O2 -g -I{{ .Env.SYSROOT }}/include
+      # zig cc cross-compiles against musl and the static libseccomp the setup action
+      # builds into $SYSROOT/<arch>.
+      - >-
+        {{- if and (eq .Os "linux") (eq .Arch "amd64") }}CC=zig cc -target x86_64-linux-musl{{- end }}
+        {{- if and (eq .Os "linux") (eq .Arch "arm64") }}CC=zig cc -target aarch64-linux-musl{{- end }}
+      - >-
+        {{- if and (eq .Os "linux") (eq .Arch "amd64") }}PKG_CONFIG_LIBDIR={{ .Env.SYSROOT }}/x86_64/lib/pkgconfig{{- end }}
+        {{- if and (eq .Os "linux") (eq .Arch "arm64") }}PKG_CONFIG_LIBDIR={{ .Env.SYSROOT }}/aarch64/lib/pkgconfig{{- end }}
     goos:
       - linux
     goarch:
       - amd64
       - arm64
-    overrides:
-      - goos: linux
-        goarch: amd64
-        goamd64: v1
-        env:
-          - CC=zig cc -target x86_64-linux-musl
-          - PKG_CONFIG_LIBDIR={{ .Env.SYSROOT }}/x86_64/lib/pkgconfig
-      - goos: linux
-        goarch: arm64
-        goarm64: v8.0
-        env:
-          - CC=zig cc -target aarch64-linux-musl
-          - PKG_CONFIG_LIBDIR={{ .Env.SYSROOT }}/aarch64/lib/pkgconfig
+    goamd64: [v1]
+    goarm64: [v8.0]
     flags:
       - -trimpath
     # Upstream's BUILDTAGS, minus what needs shared C libraries:
