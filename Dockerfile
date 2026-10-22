@@ -38,9 +38,13 @@ fi
 # shadow-subids: newuidmap and newgidmap (file capabilities) for rootless.
 # fuse-overlayfs: rootless overlay where the kernel's is not allowed.
 # shellcheck disable=SC2086 # netavark holds two package names
+# bash and git as in upstream's image: bash is the default command and the podman
+# user's shell, git serves podman build from Git URLs.
 apk --root /rootfs --arch "${arch}" --no-cache --no-scripts add \
   conmon crun ${netavark} passt catatonit fuse-overlayfs shadow-subids \
-  containers-common iptables nftables tzdata
+  containers-common iptables nftables tzdata bash git
+# bash's own script would add it to /etc/shells.
+echo /bin/bash >> /rootfs/etc/shells
 
 # Ubuntu's AppArmor profiles for passt and pasta attach by path to
 # /usr/bin/{passt,pasta}{,.avx2} and are written for the host's binaries: 24.04's passt
@@ -54,13 +58,21 @@ fi
 
 # Unprivileged user for rootless podman, with subordinate ID ranges around its own ID
 # as in upstream's image, and its own storage volume.
-echo 'podman:x:1000:1000:podman:/home/podman:/bin/sh' >> /rootfs/etc/passwd
+echo 'podman:x:1000:1000:podman:/home/podman:/bin/bash' >> /rootfs/etc/passwd
 echo 'podman:x:1000:' >> /rootfs/etc/group
 echo 'podman:!::0:::::' >> /rootfs/etc/shadow
 printf 'podman:1:999\npodman:1001:64535\n' > /rootfs/etc/subuid
 cp /rootfs/etc/subuid /rootfs/etc/subgid
-mkdir -p /rootfs/home/podman/.config/containers /rootfs/home/podman/.local/share/containers
+mkdir -p /rootfs/home/podman/.config/containers/containers.conf.d \
+  /rootfs/home/podman/.local/share/containers
 chown -R 1000:1000 /rootfs/home/podman
+
+# Empty additional image store, as in upstream's image, for a read-only store mounted
+# at /var/lib/shared (storage.conf).
+for store in overlay vfs; do
+  mkdir -p "/rootfs/var/lib/shared/${store}-images" "/rootfs/var/lib/shared/${store}-layers"
+  touch "/rootfs/var/lib/shared/${store}-images/images.lock" "/rootfs/var/lib/shared/${store}-layers/layers.lock"
+done
 
 # ctime cannot be preserved, so -cnewer finds exactly what the steps above wrote.
 mkdir /delta
@@ -72,11 +84,20 @@ EOF
 FROM base
 ARG TARGETPLATFORM
 COPY --from=delta /delta/ /
-COPY .build/packaging/image/containers.conf /etc/containers/containers.conf
-COPY --chown=1000:1000 .build/packaging/image/storage.conf /home/podman/.config/containers/storage.conf
+# Drop-ins, not the main files: since Podman 6 a user's ~/.config/containers/containers.conf
+# replaces /etc/containers/containers.conf instead of adding to it, but drop-ins are
+# read from every directory. A drop-in shadows one of the same name in an earlier
+# directory, so the user's has its own name.
+COPY .build/packaging/image/containers.conf /etc/containers/containers.conf.d/50-podman-in-container.conf
+COPY --chown=1000:1000 .build/packaging/image/podman-containers.conf /home/podman/.config/containers/containers.conf.d/60-rootless-in-container.conf
+COPY .build/packaging/image/storage.conf /etc/containers/storage.conf
+COPY --chown=1000:1000 .build/packaging/image/storage-rootless.conf /home/podman/.config/containers/storage.conf
 COPY $TARGETPLATFORM/podman $TARGETPLATFORM/podman-remote /usr/bin/
 COPY $TARGETPLATFORM/quadlet $TARGETPLATFORM/rootlessport /usr/libexec/podman/
 # Container storage and the overlays podman build mounts over the build context (in
 # /var/tmp) need a file system that is not the image's overlay.
 VOLUME ["/var/lib/containers", "/var/tmp", "/home/podman/.local/share/containers"]
-ENTRYPOINT ["/usr/bin/podman"]
+# As in upstream's image: container=oci tells podman it runs in a container (no warning
+# about / not being a shared mount), and builds use chroot isolation.
+ENV container=oci BUILDAH_ISOLATION=chroot
+CMD ["/bin/bash"]

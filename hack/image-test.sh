@@ -52,9 +52,13 @@ in_image() {
   docker exec "${name}" podman "$@"
 }
 
+# Same command form as upstream's quay.io/podman/stable: no entrypoint.
+echo "+ [image] podman --version" >&2
+docker run --rm "${image}" podman --version | grep -q '^podman version '
+
 for user in root podman; do
   docker run -d --rm --privileged --name "${name}" --user "${user}" -p 127.0.0.1:18080:8080 \
-    --entrypoint sleep "${image}" infinity >/dev/null
+    "${image}" sleep infinity >/dev/null
   test "$(in_image info --format '{{.Host.Security.Rootless}}')" = "$([[ "${user}" == podman ]] && echo true || echo false)"
   test "$(in_image run --rm "${base}" echo ok)" = ok
 
@@ -73,6 +77,20 @@ for user in root podman; do
   test "$(in_image run --rm localhost/built cat /built)" = built
   docker rm -f "${name}" >/dev/null
 done
+
+# Rootless without --privileged, in upstream's documented form; podman's
+# --security-opt label=disable and unmask=ALL correspond to Docker's seccomp and
+# AppArmor settings here.
+echo "+ [image as podman, not privileged] podman run, podman build" >&2
+# shellcheck disable=SC2016 # expanded by the shell in the image
+docker run --rm --user podman --device /dev/fuse \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined "${image}" \
+  sh -c 'set -e
+    test "$(podman run --rm "$1" echo ok)" = ok
+    mkdir /tmp/ctx
+    printf "FROM %s\nRUN echo built > /built\n" "$1" >/tmp/ctx/Containerfile
+    podman build -q -t localhost/built /tmp/ctx >/dev/null
+    test "$(podman run --rm localhost/built cat /built)" = built' sh "${base}"
 
 docker image rm "${image}" >/dev/null
 echo "image tests passed" >&2

@@ -82,25 +82,54 @@ shell completions.
 ### Image
 
 `ghcr.io/podman-container-tools-community/podman` carries the same static release
-binaries (`podman`, `podman-remote`, `quadlet` and `rootlessport`) on Alpine 3.24. conmon,
-crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs and the configuration
-in `/etc/containers` come from Alpine; for Podman 6, which needs netavark 2, netavark
-and aardvark-dns come from Alpine's edge repository. As in upstream's
-`quay.io/podman/stable`, containers share the outer container's namespaces
-([`packaging/image/containers.conf`](packaging/image/containers.conf)), and the
-`podman` user (UID 1000) runs rootless with native overlay storage on the volume in
-`/home/podman/.local/share/containers`. The entrypoint is `podman`:
+binaries (`podman`, `podman-remote`, `quadlet` and `rootlessport`) on Alpine 3.24, set up
+like upstream's `quay.io/podman/stable` and used the same way: no entrypoint, `bash` as
+the default command, `root` or the rootless `podman` user (UID 1000).
 
 ```sh
 docker run --rm --privileged ghcr.io/podman-container-tools-community/podman:latest \
-  run --rm quay.io/libpod/alpine:latest echo hello
+  podman run --rm quay.io/libpod/alpine:latest echo hello
 docker run --rm --privileged --user podman ghcr.io/podman-container-tools-community/podman:latest \
-  run --rm quay.io/libpod/alpine:latest echo hello
+  podman run --rm quay.io/libpod/alpine:latest echo hello
+# Rootless without --privileged (with podman as the outer engine:
+# --security-opt label=disable --security-opt unmask=ALL --device /dev/fuse)
+docker run --rm --user podman --device /dev/fuse \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+  ghcr.io/podman-container-tools-community/podman:latest \
+  podman run --rm quay.io/libpod/alpine:latest echo hello
 ```
 
-The image needs `--privileged`: podman mounts file systems and creates network
-namespaces, and rootless podman also user namespaces. On Ubuntu 24.04 and newer hosts,
-rootless podman in the image also needs `sudo sysctl -w
+conmon, crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs, `bash`, `git`
+and the configuration in `/etc/containers` come from Alpine; for Podman 6, which needs
+netavark 2, netavark and aardvark-dns come from Alpine's edge repository. As upstream:
+
+- containers share the outer container's namespaces
+  ([`packaging/image/containers.conf`](packaging/image/containers.conf)), and rootless
+  containers bind-mount `/proc` without sysctls
+  ([`packaging/image/podman-containers.conf`](packaging/image/podman-containers.conf)),
+- `container=oci` and `BUILDAH_ISOLATION=chroot` are set,
+- `/var/lib/shared` is an empty additional image store, for a read-only store mounted
+  there,
+- the short-name aliases (`podman pull fedora` and so on) are the same.
+
+Differences from upstream:
+
+- **No cpp and ssh.** `podman build` with a `Containerfile.in` and Git URLs over SSH do
+  not work.
+- **Registries.** Unqualified names are searched on `docker.io` only, without
+  `short-name-mode = "enforcing"`; upstream also searches `registry.fedoraproject.org`
+  and `registry.access.redhat.com` and refuses ambiguous short names.
+- **Native overlay** for rootless storage on the volume in
+  `/home/podman/.local/share/containers`, instead of fuse-overlayfs (Alpine's 1.16
+  fails on kernel 7.0); upstream's `fsync=0` is left out, it breaks native overlay.
+- **Drop-ins.** The image's settings are drop-ins in
+  `/etc/containers/containers.conf.d/` and
+  `/home/podman/.config/containers/containers.conf.d/`. Since Podman 6, a mounted
+  `~/.config/containers/containers.conf` replaces `/etc/containers/containers.conf`
+  instead of adding to it; add your settings as a drop-in with another file name, since
+  a drop-in shadows one of the same name.
+
+On Ubuntu 24.04 and newer hosts, rootless podman in the image needs `sudo sysctl -w
 kernel.apparmor_restrict_unprivileged_userns=0`, as in the tests. The image runs `pasta`
 from `/usr/libexec/podman`, where Ubuntu's AppArmor profiles for the host's `passt`
 and `pasta` (by path, `/usr/bin/passt` and `/usr/bin/pasta`) do not attach: they break
@@ -110,8 +139,8 @@ rootless networking in containers.
 
 ```sh
 docker run --rm -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" \
-  --entrypoint podman-remote ghcr.io/podman-container-tools-community/podman:latest \
-  --url unix:///run/podman/podman.sock ps
+  ghcr.io/podman-container-tools-community/podman:latest \
+  podman-remote --url unix:///run/podman/podman.sock ps
 ```
 
 ## Trust model
@@ -165,7 +194,8 @@ they cannot be built verifiably.
    seccomp, bridge network with DNS, published ports, pods, `podman build`, quadlet
    and `podman-remote` against the API service. [`hack/image-test.sh`](hack/image-test.sh)
    then builds the image for both architectures and runs the amd64 one as root and
-   rootless: run, bridge network with DNS and a published port. Upstream's own system
+   rootless, with and without `--privileged`: run, bridge network with DNS, a published
+   port and `podman build`. Upstream's own system
    and end-to-end tests are not run, because they expect upstream's test VM setup.
 4. [`ci.yaml`](.github/workflows/ci.yaml) runs `test.yaml` for the newest release of every
    minor version on pull requests.
@@ -324,7 +354,7 @@ This repository is checked out to `.build/` inside an upstream checkout.
 ```
 .goreleaser.yaml                     build, archive, package, image and signing configuration
 Dockerfile                           podman image on Alpine with the runtime helpers
-packaging/image/                     containers.conf and rootless storage.conf for the image
+packaging/image/                     containers.conf drop-ins and storage.conf for the image
 hack/upstream-releases.sh            upstream releases to build
 hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
