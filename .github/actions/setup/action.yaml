@@ -53,8 +53,8 @@ runs:
       shell: bash
       env:
         # renovate: datasource=github-release-attachments depName=seccomp/libseccomp
-        LIBSECCOMP_VERSION: v2.6.0
-        LIBSECCOMP_SHA256: 83b6085232d1588c379dc9b9cae47bb37407cf262e6e74993c61ba72d2a784dc
+        LIBSECCOMP_VERSION: v2.6.1
+        LIBSECCOMP_SHA256: 501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be
       run: | # zizmor: ignore[github-env]
         sudo apt-get install -y --no-install-recommends gperf
         tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
