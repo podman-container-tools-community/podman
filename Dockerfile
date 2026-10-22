@@ -42,15 +42,15 @@ apk --root /rootfs --arch "${arch}" --no-cache --no-scripts add \
   conmon crun ${netavark} passt catatonit fuse-overlayfs shadow-subids \
   containers-common iptables nftables tzdata
 
-# Ubuntu's AppArmor profile for passt attaches by path to /usr/bin/passt{,.avx2} and does
-# not allow what pasta needs. exec resolves Alpine's pasta symlinks to those paths, so on
-# Ubuntu hosts with passt installed rootless networking would fail; hard links keep the
-# pasta name, as in Fedora's package.
-for link in /rootfs/usr/bin/pasta /rootfs/usr/bin/pasta.avx2; do
-  if [ -L "${link}" ]; then
-    ln -f "/rootfs/usr/bin/$(readlink "${link}")" "${link}"
-  fi
-done
+# Ubuntu's AppArmor profiles for passt and pasta attach by path to
+# /usr/bin/{passt,pasta}{,.avx2} and are written for the host's binaries: 24.04's passt
+# profile, which Alpine's pasta symlinks resolve to, lacks what pasta needs, and 26.04's
+# pasta profile does not let podman signal pasta. podman looks for pasta in
+# /usr/libexec/podman before $PATH, and hard links there run unconfined.
+ln -f /rootfs/usr/bin/passt /rootfs/usr/libexec/podman/pasta
+if [ -f /rootfs/usr/bin/passt.avx2 ]; then
+  ln -f /rootfs/usr/bin/passt.avx2 /rootfs/usr/libexec/podman/pasta.avx2
+fi
 
 # Unprivileged user for rootless podman, with subordinate ID ranges around its own ID
 # as in upstream's image, and its own storage volume.

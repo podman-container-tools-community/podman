@@ -101,9 +101,10 @@ docker run --rm --privileged --user podman ghcr.io/podman-container-tools-commun
 The image needs `--privileged`: podman mounts file systems and creates network
 namespaces, and rootless podman also user namespaces. On Ubuntu 24.04 and newer hosts,
 rootless podman in the image also needs `sudo sysctl -w
-kernel.apparmor_restrict_unprivileged_userns=0`, as in the tests. `pasta` is a hard link
-in the image, not Alpine's symlink, so the host's AppArmor profile for `passt` does
-not apply to it.
+kernel.apparmor_restrict_unprivileged_userns=0`, as in the tests. The image runs `pasta`
+from `/usr/libexec/podman`, where Ubuntu's AppArmor profiles for the host's `passt`
+and `pasta` (by path, `/usr/bin/passt` and `/usr/bin/pasta`) do not attach: they break
+rootless networking in containers.
 
 `podman-remote` talks to a podman API socket:
 

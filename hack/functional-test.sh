@@ -39,8 +39,15 @@ echo "+ installing runtime helpers (no-op where the image has them)" >&2
 dnf install -y -q --setopt=install_weak_deps=False \
   catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils util-linux jq >/dev/null
 # Fedora's base image carries newuidmap and newgidmap without their file capabilities,
-# which rootless podman needs.
-chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+# which rootless podman needs; quay.io/podman/stable has them already.
+rpm --setcaps shadow-utils
+# As in the image (see Dockerfile): pasta from /usr/libexec/podman, where Ubuntu's
+# AppArmor profiles for the host's pasta and passt do not attach.
+for bin in pasta pasta.avx2; do
+  if [[ -e "/usr/bin/${bin}" ]]; then
+    ln -f "$(realpath "/usr/bin/${bin}")" "/usr/libexec/podman/${bin}"
+  fi
+done
 install -m 755 /dist/podman_linux_amd64_v1/podman /usr/bin/podman
 install -m 755 /dist/podman-remote_linux_amd64_v1/podman-remote /usr/bin/podman-remote
 install -D -m 755 /dist/rootlessport_linux_amd64_v1/rootlessport /usr/libexec/podman/rootlessport
