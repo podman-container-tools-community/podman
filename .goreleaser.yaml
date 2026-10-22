@@ -280,25 +280,30 @@ signs:
       - --yes
     artifacts: checksum
 
-# podman itself needs conmon, an OCI runtime and netavark from a distribution, so the
-# distroless image carries the remote client only.
+# podman with the runtime helpers from Alpine (packaging/image, Dockerfile).
 dockers_v2:
-  - id: podman-remote
-    ids: [podman-remote]
+  - id: podman
+    ids: [podman, podman-remote, quadlet, rootlessport]
     images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/podman-remote"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/podman"
     tags:
       - "{{ .Tag }}"
       - '{{ if eq .Env.IS_LATEST_MINOR "true" }}v{{ .Major }}.{{ .Minor }}{{ end }}'
       - '{{ if eq .Env.IS_LATEST "true" }}v{{ .Major }}{{ end }}'
       - '{{ if eq .Env.IS_LATEST "true" }}latest{{ end }}'
     dockerfile: .build/Dockerfile
+    extra_files:
+      - .build/packaging/image/containers.conf
+      - .build/packaging/image/storage.conf
+    build_args:
+      # Podman 6 needs netavark 2, which Alpine has only in edge so far.
+      NETAVARK_FROM_EDGE: '{{ if ge .Major 6 }}true{{ end }}'
     platforms:
       - linux/amd64
       - linux/arm64
     annotations:
-      "org.opencontainers.image.title": "podman-remote"
-      "org.opencontainers.image.description": "Community-built static podman-remote {{ .Tag }} (upstream: github.com/podman-container-tools/podman)"
+      "org.opencontainers.image.title": "podman"
+      "org.opencontainers.image.description": "Community-built static podman {{ .Tag }} on Alpine with its runtime helpers (upstream: github.com/podman-container-tools/podman)"
       "org.opencontainers.image.version": "{{ .Version }}"
       "org.opencontainers.image.created": "{{ .CommitDate }}"
       "org.opencontainers.image.source": "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"

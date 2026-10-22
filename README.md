@@ -17,7 +17,7 @@ This project fills that gap with:
 - `.deb` and `.rpm` packages of the same binaries, with `quadlet`, `rootlessport`,
   systemd units and shell completions, that replace the distribution's `podman`
   package,
-- a multi-arch `podman-remote` image based on `gcr.io/distroless/static-debian13`,
+- a multi-arch `podman` image on Alpine with the same binaries and the runtime helpers,
 - every upstream minor version from 5.3 on, not only the newest one.
 
 podman is not self-contained: it starts containers through **conmon** and an OCI
@@ -81,12 +81,28 @@ shell completions.
 
 ### Image
 
-`ghcr.io/podman-container-tools-community/podman-remote` contains `podman-remote` only,
-for talking to a podman API socket:
+`ghcr.io/podman-container-tools-community/podman` carries the same static release
+binaries (`podman`, `podman-remote`, `quadlet` and `rootlessport`) on Alpine 3.24. conmon,
+crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs and the configuration
+in `/etc/containers` come from Alpine; for Podman 6, which needs netavark 2, netavark
+and aardvark-dns come from Alpine's edge repository. As in upstream's
+`quay.io/podman/stable`, containers share the outer container's namespaces
+([`packaging/image/containers.conf`](packaging/image/containers.conf)), and the
+`podman` user (UID 1000) runs rootless with native overlay storage on the volume in
+`/home/podman/.local/share/containers`. The entrypoint is `podman`:
+
+```sh
+docker run --rm --privileged ghcr.io/podman-container-tools-community/podman:latest \
+  run --rm quay.io/libpod/alpine:latest echo hello
+docker run --rm --privileged --user podman ghcr.io/podman-container-tools-community/podman:latest \
+  run --rm quay.io/libpod/alpine:latest echo hello
+```
+
+`podman-remote` talks to a podman API socket:
 
 ```sh
 docker run --rm -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock" \
-  ghcr.io/podman-container-tools-community/podman-remote:latest \
+  --entrypoint podman-remote ghcr.io/podman-container-tools-community/podman:latest \
   --url unix:///run/podman/podman.sock ps
 ```
 
@@ -135,8 +151,9 @@ they cannot be built verifiably.
 3. Before anything is published, [`test.yaml`](.github/workflows/test.yaml) builds the
    release and runs [`hack/functional-test.sh`](hack/functional-test.sh) against the
    amd64 binaries in a privileged container of upstream's `quay.io/podman/stable`
-   image of the same version, whose conmon, crun, netavark, aardvark-dns and passt
-   match that release (Fedora's as a fallback). It tests as root and rootless: run,
+   image of the same version, minor or major, whose conmon, crun, netavark,
+   aardvark-dns and passt match that release. Without such a tag it uses Fedora 43 for
+   Podman 5 and Fedora rawhide for newer releases. It tests as root and rootless: run,
    seccomp, bridge network with DNS, published ports, pods, `podman build`, quadlet
    and `podman-remote` against the API service. Upstream's own system and end-to-end
    tests are not run, because they expect upstream's test VM setup.
@@ -224,7 +241,7 @@ Download the binary (or archive, or package), `checksums.txt` and
 ### Verify an image
 
 ```sh
-cosign verify ghcr.io/podman-container-tools-community/podman-remote:v6.1.4 \
+cosign verify ghcr.io/podman-container-tools-community/podman:v6.1.4 \
   --certificate-identity-regexp '^https://github.com/podman-container-tools-community/podman/\.github/workflows/release\.yaml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -296,7 +313,8 @@ This repository is checked out to `.build/` inside an upstream checkout.
 
 ```
 .goreleaser.yaml                     build, archive, package, image and signing configuration
-Dockerfile                           podman-remote image, COPY only (no emulation for arm64)
+Dockerfile                           podman image on Alpine with the runtime helpers
+packaging/image/                     containers.conf and rootless storage.conf for the image
 hack/upstream-releases.sh            upstream releases to build
 hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/

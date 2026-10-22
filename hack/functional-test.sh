@@ -2,11 +2,11 @@
 # Exercises a built podman with matching runtime helpers:
 #   hack/functional-test.sh <dist dir>
 # Starts a privileged container of upstream's quay.io/podman/stable image for the
-# same version (needs docker and network access to quay.io), which brings conmon,
-# crun, netavark, aardvark-dns and passt in versions that release was built for;
-# Podman 6 needs netavark 2. Falls back to Fedora's helpers when that image is
-# missing. Puts the amd64 binaries from <dist dir> in place and runs the tests as root
-# and rootless.
+# same version, minor or major (needs docker and network access to quay.io), which
+# brings conmon, crun, netavark, aardvark-dns and passt in versions that release was
+# built for. Without such a tag it falls back to Fedora 43 for Podman 5 and Fedora
+# rawhide for newer releases, since Podman 6 needs netavark 2. Puts the amd64 binaries
+# from <dist dir> in place and runs the tests as root and rootless.
 set -euo pipefail
 
 IMAGE=quay.io/libpod/alpine:latest
@@ -14,10 +14,17 @@ IMAGE=quay.io/libpod/alpine:latest
 if [[ "$1" != --inside ]]; then
   dist="$(realpath "$1")"
   version="$("${dist}/podman_linux_amd64_v1/podman" --version | awk '{print $3}')"
-  base="quay.io/podman/stable:v${version}"
-  if ! docker pull -q "${base}"; then
+  major="${version%%.*}"
+  base=registry.fedoraproject.org/fedora:rawhide
+  if [[ "${major}" == 5 ]]; then
     base=registry.fedoraproject.org/fedora:43
   fi
+  for tag in "v${version}" "v${version%.*}" "v${major}"; do
+    if docker pull -q "quay.io/podman/stable:${tag}" >/dev/null; then
+      base="quay.io/podman/stable:${tag}"
+      break
+    fi
+  done
   echo "+ testing podman ${version} in ${base}" >&2
   # Anonymous volumes keep container storage off the overlay root filesystem.
   exec docker run --rm --privileged --cgroupns=private \
