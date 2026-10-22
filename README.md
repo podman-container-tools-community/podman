@@ -387,14 +387,16 @@ Compared to a distribution package, the static `podman` has:
 
 ## Reproduce locally
 
-Needs Go, the zig release pinned in
-[`.github/actions/setup`](.github/actions/setup/action.yaml), goreleaser and gperf:
+Needs Go, gperf and [mise](https://mise.jdx.dev), which installs zig, goreleaser and syft from
+`.build/mise.lock`:
 
 ```sh
 git clone --branch v6.1.4 https://github.com/podman-container-tools/podman
 cd podman
 git clone https://github.com/podman-container-tools-community/podman .build
 printf '/.build/\n/dist/\n/.zig-cache/\n' >> .git/info/exclude
+(cd .build && mise install)
+eval "$(mise env -C .build)"
 .build/hack/build-sysroot.sh /tmp/sysroot
 SYSROOT=/tmp/sysroot GOTOOLCHAIN=local MODULE="$(go mod edit -json | jq -r .Module.Path)" \
 GITHUB_REPOSITORY_OWNER=podman-container-tools-community GITHUB_REPOSITORY=podman-container-tools-community/podman \
@@ -418,7 +420,7 @@ hack/build-image.sh                  builds, pushes and signs the image from bui
 hack/functional-test.sh              runs test/functional.bats and test/signing.bats against the built binaries
 hack/image-test.sh                   builds the image from a dist directory, runs test/image.bats
 test/                                bats tests for the binaries and the image
-.github/actions/setup/               hide .build/ from Git, install Go, zig, the sysroot, syft, goreleaser
+.github/actions/setup/               hide .build/ from Git, install Go and the mise tools, build the sysroot
 .github/workflows/test.yaml          build one release, run functional and image tests
 .github/workflows/ci.yaml            pull requests: test.yaml for newest release per minor
 .github/workflows/sync.yaml          schedule and main: tag new releases, dispatch release.yaml
@@ -427,6 +429,6 @@ test/                                bats tests for the binaries and the image
 packaging/gpg.asc                    public GPG key for packages and the apt repository
 packaging/apt/podman.sources         apt source for the latest release
 packaging/image/                     containers.conf drop-ins and storage.conf for the image
-renovate.json                        base image, action, zig, libseccomp, systemd and bats updates
-mise.toml, mise.lock                 bats-core for the tests, installed with mise
+renovate.json                        base image, action, mise tool, libseccomp and systemd updates
+mise.toml, mise.lock                 zig, goreleaser, syft, cosign and bats, installed with mise
 ```

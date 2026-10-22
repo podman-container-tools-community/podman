@@ -56,15 +56,6 @@ jobs:
             file "${binary}" | tee /dev/stderr | grep -q 'statically linked'
           done
 
-      # bats from .build/mise.toml, checked against .build/mise.lock. Its bin directory,
-      # not the shims, goes on PATH, so bats also runs outside .build/ and its installation
-      # can be mounted into the functional test container.
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          working_directory: .build
-          add_shims_to_path: false
-          cache: false
-
       # Ubuntu 26.04, like 24.04, denies unprivileged user namespaces to unconfined
       # processes, which the rootless tests need.
       - name: Allow user namespaces
