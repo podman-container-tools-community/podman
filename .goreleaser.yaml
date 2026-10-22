@@ -1,0 +1,343 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+#
+# Runs in a checkout of upstream podman at a release tag, with this repository in
+# .build/ (see .github/actions/setup):
+#   goreleaser release --config .build/.goreleaser.yaml
+# goreleaser takes the module, go.sum and tag from the upstream checkout.
+# The binaries are still built from the Go module proxy and verified against
+# sum.golang.org (gomod.proxy), so neither the checkout nor this repository can alter
+# the source.
+# MODULE is upstream's module path (go.podman.io/podman/v6, github.com/containers/podman/v5).
+# SYSROOT holds the static musl libseccomp per architecture (hack/build-libseccomp.sh);
+# podman is linked with zig as C compiler, so both architectures build on one runner.
+# GPG_KEY_PATH names the GPG private key that signs the deb and rpm packages; unset
+# means unsigned.
+# IS_LATEST=true marks upstream's latest release, IS_LATEST_MINOR=true the newest
+# release of its minor version; they decide which floating image tags move.
+version: 2
+
+project_name: podman
+
+gomod:
+  proxy: true
+  env:
+    - GOPROXY=https://proxy.golang.org
+    - GOSUMDB=sum.golang.org
+    - GOFLAGS=-mod=mod
+
+before:
+  hooks:
+    - .build/hack/generate-systemd.sh .build/generated/systemd
+
+builds:
+  # podman needs cgo: rootless mode re-execs itself into a user namespace from a C
+  # constructor (pkg/rootless), the state database is SQLite (mattn/go-sqlite3, which
+  # bundles SQLite) and seccomp filters come from libseccomp.
+  - id: podman
+    main: ./cmd/podman
+    binary: podman
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    overrides:
+      - goos: linux
+        goarch: amd64
+        goamd64: v1
+        env:
+          - CC=zig cc -target x86_64-linux-musl
+          - PKG_CONFIG_LIBDIR={{ .Env.SYSROOT }}/x86_64/lib/pkgconfig
+      - goos: linux
+        goarch: arm64
+        goarm64: v8.0
+        env:
+          - CC=zig cc -target aarch64-linux-musl
+          - PKG_CONFIG_LIBDIR={{ .Env.SYSROOT }}/aarch64/lib/pkgconfig
+    flags:
+      - -trimpath
+    # Upstream's BUILDTAGS, minus what needs shared C libraries:
+    # - seccomp: libseccomp, linked statically
+    # - apparmor: pure Go, calls apparmor_parser
+    # - grpcnotrace: as upstream, smaller binary
+    # - containers_image_openpgp: pure-Go OpenPGP instead of gpgme (no GPG signing)
+    # - exclude_graphdriver_btrfs: btrfs driver needs btrfs-progs headers
+    # - exclude_graphdriver_devicemapper, btrfs_noversion: needed by older releases,
+    #   harmless for newer ones
+    # Not set: systemd (libsystemd: journald logging and events), libsubid,
+    # libsqlite3 (go-sqlite3 uses its bundled SQLite instead).
+    tags: &podman_tags
+      - seccomp
+      - apparmor
+      - grpcnotrace
+      - containers_image_openpgp
+      - exclude_graphdriver_btrfs
+      - exclude_graphdriver_devicemapper
+      - btrfs_noversion
+    ldflags: &ldflags
+      - -s -w
+      # zig links the C parts; -s there strips their debug info too.
+      - -linkmode external -extldflags '-static -s'
+      - -X {{ .Env.MODULE }}/libpod/define.gitCommit={{ .FullCommit }}
+      - -X {{ .Env.MODULE }}/libpod/define.buildInfo={{ .CommitTimestamp }}
+      - -X {{ .Env.MODULE }}/libpod/define.buildOrigin=podman-container-tools-community
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  # Remote client, as upstream's podman-remote-static: no cgo needed.
+  - id: podman-remote
+    main: ./cmd/podman
+    binary: podman-remote
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    tags:
+      - remote
+      - containers_image_openpgp
+      - exclude_graphdriver_btrfs
+      - exclude_graphdriver_devicemapper
+      - btrfs_noversion
+    ldflags:
+      - -s -w
+      - -X {{ .Env.MODULE }}/libpod/define.gitCommit={{ .FullCommit }}
+      - -X {{ .Env.MODULE }}/libpod/define.buildInfo={{ .CommitTimestamp }}
+      - -X {{ .Env.MODULE }}/libpod/define.buildOrigin=podman-container-tools-community
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  # Helpers installed to /usr/libexec/podman; pure Go.
+  - id: quadlet
+    main: ./cmd/quadlet
+    binary: quadlet
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    tags: *podman_tags
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: rootlessport
+    main: ./cmd/rootlessport
+    binary: rootlessport
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    tags: *podman_tags
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: podman
+    ids: [podman, podman-remote, quadlet, rootlessport]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - src: LICENSE
+      - src: completions/*/*
+      - src: .build/generated/systemd/system/*
+        dst: systemd/system
+        strip_parent: true
+      - src: .build/generated/systemd/user/*
+        dst: systemd/user
+        strip_parent: true
+  - id: binary
+    ids: [podman, podman-remote]
+    formats: [binary]
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+
+# Replace the distribution's podman package. Epoch 6 sorts above every distribution
+# version (Fedora uses epoch 5, Debian none), so upgrades do not switch back.
+# The runtime helpers (conmon, crun, netavark, aardvark-dns, passt) and the
+# configuration in /etc/containers come from the distribution.
+nfpms:
+  - id: podman
+    ids: [podman, podman-remote]
+    package_name: podman
+    file_name_template: "{{ .ConventionalFileName }}"
+    formats: [deb, rpm]
+    vendor: podman-container-tools-community
+    homepage: "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+    maintainer: podman-container-tools-community <https://github.com/{{ .Env.GITHUB_REPOSITORY }}/issues>
+    description: |-
+      Community-built static podman (upstream: github.com/podman-container-tools/podman).
+      Manage pods, containers and container images.
+    license: Apache-2.0
+    bindir: /usr/bin
+    epoch: "6"
+    contents:
+      - src: "dist/quadlet_{{ .Os }}_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/quadlet"
+        dst: /usr/libexec/podman/quadlet
+        file_info:
+          mode: 0755
+      - src: "dist/rootlessport_{{ .Os }}_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/rootlessport"
+        dst: /usr/libexec/podman/rootlessport
+        file_info:
+          mode: 0755
+      - src: /usr/bin/podman
+        dst: /usr/bin/podmansh
+        type: symlink
+      - src: /usr/libexec/podman/quadlet
+        dst: /usr/lib/systemd/system-generators/podman-system-generator
+        type: symlink
+      - src: /usr/libexec/podman/quadlet
+        dst: /usr/lib/systemd/user-generators/podman-user-generator
+        type: symlink
+      - src: .build/generated/systemd/system/*
+        dst: /usr/lib/systemd/system/
+      - src: .build/generated/systemd/user/*
+        dst: /usr/lib/systemd/user/
+      - src: contrib/tmpfile/podman.conf
+        dst: /usr/lib/tmpfiles.d/podman.conf
+      - src: completions/bash/podman
+        dst: /usr/share/bash-completion/completions/podman
+      - src: completions/bash/podman-remote
+        dst: /usr/share/bash-completion/completions/podman-remote
+      - src: completions/zsh/_podman
+        dst: /usr/share/zsh/site-functions/_podman
+      - src: completions/zsh/_podman-remote
+        dst: /usr/share/zsh/site-functions/_podman-remote
+      - src: completions/fish/podman.fish
+        dst: /usr/share/fish/vendor_completions.d/podman.fish
+      - src: completions/fish/podman-remote.fish
+        dst: /usr/share/fish/vendor_completions.d/podman-remote.fish
+      - src: LICENSE
+        dst: /usr/share/doc/podman/LICENSE
+    # Signed with the repository's GPG key (packaging/gpg.asc) when GPG_KEY_PATH is set;
+    # the passphrase comes from NFPM_PASSPHRASE.
+    rpm:
+      group: Applications/System
+      signature:
+        key_file: '{{ envOrDefault "GPG_KEY_PATH" "" }}'
+    deb:
+      signature:
+        key_file: '{{ envOrDefault "GPG_KEY_PATH" "" }}'
+    overrides:
+      # Debian and Ubuntu ship the configuration in golang-github-containers-common.
+      deb:
+        dependencies:
+          - conmon
+          - crun | runc
+          - netavark
+          - passt
+        recommends:
+          - golang-github-containers-common | containers-common
+          - aardvark-dns
+          - catatonit | tini | dumb-init
+          - uidmap
+        replaces:
+          - podman-remote
+        conflicts:
+          - podman-remote
+      rpm:
+        dependencies:
+          - conmon
+          - (crun or runc)
+          - netavark
+          - passt
+        recommends:
+          - containers-common
+          - aardvark-dns
+          - catatonit
+          - shadow-utils-subid
+        replaces:
+          - podman-remote
+          - podmansh
+    mtime: "{{ .CommitDate }}"
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --bundle=${signature}
+      - ${artifact}
+      - --yes
+    artifacts: checksum
+
+# podman itself needs conmon, an OCI runtime and netavark from a distribution, so the
+# distroless image carries the remote client only.
+dockers_v2:
+  - id: podman-remote
+    ids: [podman-remote]
+    images:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/podman-remote"
+    tags:
+      - "{{ .Tag }}"
+      - '{{ if eq .Env.IS_LATEST_MINOR "true" }}v{{ .Major }}.{{ .Minor }}{{ end }}'
+      - '{{ if eq .Env.IS_LATEST "true" }}v{{ .Major }}{{ end }}'
+      - '{{ if eq .Env.IS_LATEST "true" }}latest{{ end }}'
+    dockerfile: .build/Dockerfile
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    annotations:
+      "org.opencontainers.image.title": "podman-remote"
+      "org.opencontainers.image.description": "Community-built static podman-remote {{ .Tag }} (upstream: github.com/podman-container-tools/podman)"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.created": "{{ .CommitDate }}"
+      "org.opencontainers.image.source": "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.licenses": "Apache-2.0"
+      "org.opencontainers.image.base.name": "{{ .BaseImage }}"
+      "org.opencontainers.image.base.digest": "{{ .BaseImageDigest }}"
+    labels:
+      "org.opencontainers.image.source": "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+    sbom: true
+
+docker_signs:
+  - cmd: cosign
+    artifacts: manifests
+    args:
+      - sign
+      - "${artifact}@${digest}"
+      - --yes
+
+release:
+  # Published by release.yaml once the apt repository files are uploaded.
+  draft: true
+  replace_existing_draft: true
+  # The checkout's origin is upstream; releases go to this repository instead.
+  github:
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: "{{ .Env.GITHUB_REPOSITORY_NAME }}"
+  make_latest: '{{ eq .Env.IS_LATEST "true" }}'
+  prerelease: auto
+  header: |
+    Community-maintained static build of [podman {{ .Tag }}](https://github.com/podman-container-tools/podman/releases/tag/{{ .Tag }}).
+    Not an official release of the podman project.
+
+    `podman` is linked statically against musl and libseccomp (cgo, zig as C compiler), with tags `seccomp apparmor grpcnotrace containers_image_openpgp exclude_graphdriver_btrfs`.
+    `podman-remote`, `quadlet` and `rootlessport` are built without cgo.
+    podman needs conmon, crun (or runc), netavark and passt from your distribution.
+    Known limitations: no journald log driver or events backend, no GPG signing, no libsubid; see the README.
+    Sources were fetched from proxy.golang.org and verified against sum.golang.org;
+    check with `go version -m podman-linux-amd64`.
+
+changelog:
+  disable: true

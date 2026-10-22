@@ -1,0 +1,62 @@
+name: test
+
+# Builds one upstream release without publishing anything and runs functional tests
+# (hack/functional-test.sh) against the amd64 binaries.
+#
+# Upstream's system and e2e tests are not run: they expect a test VM set up by
+# upstream's CI and a matching podman-testing binary, so they fail for reasons
+# unrelated to the binary.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Upstream tag, e.g. v6.1.4
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: podman-container-tools/podman
+          ref: refs/tags/${{ inputs.version }}
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: .build
+          persist-credentials: false
+
+      - uses: ./.build/.github/actions/setup
+        with:
+          version: ${{ inputs.version }}
+
+      # dockers_v2 builds and pushes in one step, so a dry run cannot build images.
+      - name: Build
+        run: goreleaser release --config .build/.goreleaser.yaml --clean --skip=publish,sign,docker
+        env:
+          IS_LATEST: "false"
+          IS_LATEST_MINOR: "false"
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+
+      - name: Smoke test
+        run: |
+          go version -m dist/podman_linux_amd64_v1/podman
+          dist/podman_linux_amd64_v1/podman --version
+          dist/podman-remote_linux_amd64_v1/podman-remote --version
+          for binary in dist/*_linux_*/*; do
+            file "${binary}" | tee /dev/stderr | grep -q 'statically linked'
+          done
+
+      # Ubuntu 24.04 denies unprivileged user namespaces to unconfined processes, which
+      # includes the rootless tests in the privileged container.
+      - name: Functional tests
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          .build/hack/functional-test.sh dist
