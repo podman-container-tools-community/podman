@@ -97,11 +97,7 @@ write_policy() {
 }
 
 @test "gpg: signing with --sign-by fails with a clear error" {
-  local fingerprint
-  fingerprint="$(GNUPGHOME="${WORK}/gnupg-signer" gpg_quiet --list-secret-keys --with-colons |
-    awk -F: '$1 == "fpr" { print $10; exit }')"
-  [[ -n "${fingerprint}" ]]
-  GNUPGHOME="${WORK}/gnupg-signer" run -125 podman push --tls-verify=false --sign-by "${fingerprint}" \
+  GNUPGHOME="${WORK}/gnupg-signer" run -125 podman push --tls-verify=false --sign-by signer@example.com \
     "${IMAGE}" "${GPG_REPO}:sign-by"
   [[ "${output}" == *"signing is not supported"*"containers_image_openpgp"* ]]
 }
