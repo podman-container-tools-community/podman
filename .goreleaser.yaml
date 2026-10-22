@@ -233,17 +233,22 @@ nfpms:
         key_file: '{{ envOrDefault "GPG_KEY_PATH" "" }}'
     overrides:
       # Debian and Ubuntu ship the configuration in golang-github-containers-common.
+      # containers-common is a dependency, not a recommendation: without its
+      # policy.json every pull fails, and apt --no-install-recommends and dnf
+      # install_weak_deps=False leave it out.
       deb:
         dependencies:
           - conmon
           - crun | runc
           - netavark
           - passt
-        recommends:
           - golang-github-containers-common | containers-common
+        recommends:
           - aardvark-dns
           - catatonit | tini | dumb-init
           - uidmap
+          - fuse-overlayfs
+          - dbus-user-session
         replaces:
           - podman-remote
         conflicts:
@@ -254,11 +259,12 @@ nfpms:
           - (crun or runc)
           - netavark
           - passt
-        recommends:
           - containers-common
+        recommends:
           - aardvark-dns
           - catatonit
           - shadow-utils-subid
+          - fuse-overlayfs
         replaces:
           - podman-remote
           - podmansh

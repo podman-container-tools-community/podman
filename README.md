@@ -47,7 +47,11 @@ To stay on one release, replace `releases/latest/download` in the URI with
 
 The runtime helpers come from the distribution, so older distribution releases may
 ship versions that are too old for current podman; check upstream's release notes for
-the minimum netavark, conmon and crun versions.
+the minimum netavark, conmon and crun versions. In particular, **Podman 6 needs
+netavark and aardvark-dns 2.0 and the configuration files of containers-common 0.68**
+(upstream's 6.0.0 release notes); the packages cannot express that, since the same
+package definition serves Podman 5 and 6. A distribution that still ships netavark 1.x
+(Debian 13 does) can run the Podman 5 packages, not Podman 6.
 
 The packages use epoch 6, so they stay installed when the distribution ships its own
 podman update. To go back to the distribution's package, remove the source and run
