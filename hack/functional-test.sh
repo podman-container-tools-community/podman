@@ -6,7 +6,8 @@
 # brings conmon, crun, netavark, aardvark-dns and passt in versions that release was
 # built for. Without such a tag it falls back to Fedora 43 for Podman 5 and Fedora
 # rawhide for newer releases, since Podman 6 needs netavark 2. Puts the amd64 binaries
-# from <dist dir> in place and runs the tests as root and rootless.
+# from <dist dir> in place and runs test/functional.bats as root and rootless, with the
+# bats release from hack/install-bats.sh (needs network access to github.com).
 set -euo pipefail
 
 IMAGE=quay.io/libpod/alpine:latest
@@ -25,19 +26,27 @@ if [[ "$1" != --inside ]]; then
       break
     fi
   done
+  repo="$(cd "$(dirname "$0")/.." && pwd)"
+  bats="$(mktemp -d)"
+  trap 'rm -rf "${bats}"' EXIT
+  "${repo}/hack/install-bats.sh" "${bats}"
+  # Readable for the rootless test user.
+  chmod -R a+rX "${bats}"
   echo "+ testing podman ${version} in ${base}" >&2
   # Anonymous volumes keep container storage, and the overlays podman build (buildah)
   # mounts over the build context in /var/tmp, off the overlay root filesystem.
-  exec docker run --rm --privileged --cgroupns=private \
+  docker run --rm --privileged --cgroupns=private \
     -v "${dist}:/dist:ro" \
     -v "$(realpath "$0"):/functional-test.sh:ro" \
+    -v "${repo}/test:/tests:ro" -v "${bats}:/bats:ro" \
     -v /var/lib/containers -v /home -v /var/tmp \
     "${base}" /functional-test.sh --inside
+  exit
 fi
 
 echo "+ installing runtime helpers (no-op where the image has them)" >&2
 dnf install -y -q --setopt=install_weak_deps=False \
-  catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils util-linux jq >/dev/null
+  catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils util-linux >/dev/null
 # Fedora's base image carries newuidmap and newgidmap without their file capabilities,
 # which rootless podman needs; quay.io/podman/stable has them already.
 rpm --setcaps shadow-utils
@@ -63,67 +72,15 @@ cgroup_manager = "cgroupfs"
 events_logger = "file"
 EOF
 
-tests() {
-  set -euo pipefail
-  run() {
-    echo "+ podman $*" >&2
-    podman "$@"
-  }
-  run version
-  run info --format json | jq -e '.host.security.seccompEnabled' >/dev/null
-  run pull -q "${IMAGE}" >/dev/null
-  test "$(run run --rm "${IMAGE}" echo hello)" = hello
-
-  # The default seccomp profile is applied (mode 2: filter).
-  run run --rm "${IMAGE}" grep -E '^Seccomp:\s+2' /proc/self/status
-
-  # Bridge network with DNS (netavark, aardvark-dns) and a published port, served by
-  # busybox nc.
-  run network create testnet >/dev/null
-  run run -d --name web --network testnet -p 8080:8080 "${IMAGE}" \
-    sh -c 'while true; do printf "HTTP/1.0 200 OK\r\n\r\nok\n" | nc -l -p 8080; done' >/dev/null
-  test "$(run run --rm --network testnet "${IMAGE}" wget -q -T 5 -O - http://web:8080/)" = ok
-  test "$(curl -s --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/)" = ok
-  run rm -f -t 0 web >/dev/null
-  run network rm testnet >/dev/null
-
-  # Pods and builds.
-  run pod create --name testpod >/dev/null
-  test "$(run run --rm --pod testpod "${IMAGE}" echo in-pod)" = in-pod
-  run pod rm -f -t 0 testpod >/dev/null
-  ctx="$(mktemp -d)"
-  printf 'FROM %s\nRUN echo built > /built\n' "${IMAGE}" >"${ctx}/Containerfile"
-  run build -q -t localhost/built "${ctx}" >/dev/null
-  test "$(run run --rm localhost/built cat /built)" = built
-  run rmi localhost/built >/dev/null
-
-  # Quadlet generates a unit from a .container file.
-  mkdir -p "${ctx}/quadlet" "${ctx}/units"
-  printf '[Container]\nImage=%s\n' "${IMAGE}" >"${ctx}/quadlet/test.container"
-  user=()
-  if [[ "$(id -u)" != 0 ]]; then user=(--user); fi
-  QUADLET_UNIT_DIRS="${ctx}/quadlet" /usr/libexec/podman/quadlet "${user[@]}" "${ctx}/units"
-  grep -q '^ExecStart=/usr/bin/podman run' "${ctx}/units/test.service"
-  rm -rf "${ctx}"
-
-  # podman-remote against the API service.
-  sock="unix://${XDG_RUNTIME_DIR:-/run}/podman-test.sock"
-  podman system service -t 0 "${sock}" &
-  service=$!
-  for _ in $(seq 50); do
-    if podman-remote --url "${sock}" info >/dev/null 2>&1; then break; fi
-    sleep 0.2
-  done
-  test "$(podman-remote --url "${sock}" run --rm "${IMAGE}" echo remote)" = remote
-  kill "${service}"
-  wait "${service}" || true
-}
+podman version
+status=0
 
 echo "=== root" >&2
-tests
+IMAGE="${IMAGE}" /bats/bin/bats --formatter tap /tests/functional.bats || status=1
 
 echo "=== rootless" >&2
 useradd -m tester
-su - tester -c "export IMAGE=${IMAGE} XDG_RUNTIME_DIR=/tmp/run-tester && mkdir -p -m 700 \$XDG_RUNTIME_DIR && $(declare -f tests); tests"
+su - tester -c "export IMAGE=${IMAGE} XDG_RUNTIME_DIR=/tmp/run-tester &&
+  mkdir -p -m 700 \$XDG_RUNTIME_DIR && /bats/bin/bats --formatter tap /tests/functional.bats" || status=1
 
-echo "functional tests passed" >&2
+exit "${status}"

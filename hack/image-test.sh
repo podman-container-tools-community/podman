@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 # Builds the image from a goreleaser dist directory, laid out like goreleaser's dockers_v2
-# context, and uses it as root and rootless:
+# context, and runs test/image.bats against it as root and rootless:
 #   hack/image-test.sh <dist dir>
-# Builds every architecture found in <dist dir> (no emulation needed) and runs the host's.
-# Needs Docker with buildx, curl, and network access to quay.io and dl-cdn.alpinelinux.org.
+# Builds every architecture found in <dist dir> (no emulation needed) and tests the
+# host's. Needs Docker with buildx, curl, and network access to quay.io, github.com
+# (bats, hack/install-bats.sh) and dl-cdn.alpinelinux.org.
 set -euo pipefail
 
 dist="$(realpath "$1")"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-base="${BASE_IMAGE:-quay.io/libpod/alpine:latest}"
 image=localhost/podman:test
-name=podman-image-test
 host="$(docker version --format '{{.Server.Arch}}')"
 work="$(mktemp -d)"
-trap 'docker rm -f "${name}" >/dev/null 2>&1 || true; rm -rf "${work}"' EXIT
+trap 'rm -rf "${work}"' EXIT
 
 mkdir -p "${work}/ctx/.build/packaging"
 cp -r "${repo}/packaging/image" "${work}/ctx/.build/packaging/"
@@ -47,50 +46,13 @@ done
 echo "+ building linux/${host}" >&2
 build --load --platform "linux/${host}" -t "${image}"
 
-in_image() {
-  echo "+ [image as ${user}] podman $*" >&2
-  docker exec "${name}" podman "$@"
-}
-
-# Same command form as upstream's quay.io/podman/stable: no entrypoint.
-echo "+ [image] podman --version" >&2
-docker run --rm "${image}" podman --version | grep -q '^podman version '
-
+"${repo}/hack/install-bats.sh" "${work}/bats"
+status=0
 for user in root podman; do
-  docker run -d --rm --privileged --name "${name}" --user "${user}" -p 127.0.0.1:18080:8080 \
-    "${image}" sleep infinity >/dev/null
-  test "$(in_image info --format '{{.Host.Security.Rootless}}')" = "$([[ "${user}" == podman ]] && echo true || echo false)"
-  test "$(in_image run --rm "${base}" echo ok)" = ok
-
-  # Bridge network with DNS (netavark, aardvark-dns) and a port published through both
-  # podman and Docker, served by busybox nc.
-  in_image network create testnet >/dev/null
-  in_image run -d --name web --network testnet -p 8080:8080 "${base}" \
-    sh -c 'while true; do printf "HTTP/1.0 200 OK\r\n\r\nok\n" | nc -l -p 8080; done' >/dev/null
-  test "$(in_image run --rm --network testnet "${base}" wget -q -T 5 -O - http://web:8080/)" = ok
-  test "$(curl -s --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:18080/)" = ok
-
-  # podman build (buildah) mounts an overlay over the build context, with its upper
-  # directory in /var/tmp.
-  docker exec "${name}" sh -c 'mkdir -p /tmp/ctx && printf "FROM %s\nRUN echo built > /built\n" "$1" >/tmp/ctx/Containerfile' sh "${base}"
-  in_image build -q -t localhost/built /tmp/ctx >/dev/null
-  test "$(in_image run --rm localhost/built cat /built)" = built
-  docker rm -f "${name}" >/dev/null
+  echo "=== image as ${user}" >&2
+  IMAGE="${image}" IMAGE_USER="${user}" \
+    "${work}/bats/bin/bats" --formatter tap "${repo}/test/image.bats" || status=1
 done
 
-# Rootless without --privileged, in upstream's documented form; podman's
-# --security-opt label=disable and unmask=ALL correspond to Docker's seccomp and
-# AppArmor settings here.
-echo "+ [image as podman, not privileged] podman run, podman build" >&2
-# shellcheck disable=SC2016 # expanded by the shell in the image
-docker run --rm --user podman --device /dev/fuse \
-  --security-opt seccomp=unconfined --security-opt apparmor=unconfined "${image}" \
-  sh -c 'set -e
-    test "$(podman run --rm "$1" echo ok)" = ok
-    mkdir /tmp/ctx
-    printf "FROM %s\nRUN echo built > /built\n" "$1" >/tmp/ctx/Containerfile
-    podman build -q -t localhost/built /tmp/ctx >/dev/null
-    test "$(podman run --rm localhost/built cat /built)" = built' sh "${base}"
-
 docker image rm "${image}" >/dev/null
-echo "image tests passed" >&2
+exit "${status}"

@@ -186,17 +186,24 @@ they cannot be built verifiably.
    `ghcr.io`, signatures and attestations. Image tags: `vX.Y.Z` always, `vX.Y` for the
    newest release of a minor, `vX` and `latest` for upstream's latest release.
 3. Before anything is published, [`test.yaml`](.github/workflows/test.yaml) builds the
-   release and runs [`hack/functional-test.sh`](hack/functional-test.sh) against the
-   amd64 binaries in a privileged container of upstream's `quay.io/podman/stable`
-   image of the same version, minor or major, whose conmon, crun, netavark,
-   aardvark-dns and passt match that release. Without such a tag it uses Fedora 43 for
-   Podman 5 and Fedora rawhide for newer releases. It tests as root and rootless: run,
-   seccomp, bridge network with DNS, published ports, pods, `podman build`, quadlet
-   and `podman-remote` against the API service. [`hack/image-test.sh`](hack/image-test.sh)
-   then builds the image for both architectures and runs the amd64 one as root and
-   rootless, with and without `--privileged`: run, bridge network with DNS, a published
-   port and `podman build`. Upstream's own system
-   and end-to-end tests are not run, because they expect upstream's test VM setup.
+   release and runs the [bats](https://github.com/bats-core/bats-core) tests in
+   [`test/`](test), with a pinned bats release
+   ([`hack/install-bats.sh`](hack/install-bats.sh)), each case reported in TAP:
+   - [`hack/functional-test.sh`](hack/functional-test.sh) runs
+     [`test/functional.bats`](test/functional.bats) against the amd64 binaries in a
+     privileged container of upstream's `quay.io/podman/stable` image of the same
+     version, minor or major, whose conmon, crun, netavark, aardvark-dns and passt match
+     that release. Without such a tag it uses Fedora 43 for Podman 5 and Fedora rawhide
+     for newer releases. It tests as root and rootless: run, seccomp, bridge network with
+     DNS, published ports, pods, `podman build`, quadlet and `podman-remote` against the
+     API service.
+   - [`hack/image-test.sh`](hack/image-test.sh) builds the image for both architectures
+     and runs [`test/image.bats`](test/image.bats) against the amd64 one as root and
+     rootless, with and without `--privileged`: run, bridge network with DNS, a published
+     port and `podman build`.
+
+   Upstream's own system and end-to-end tests are not run, because they expect
+   upstream's test VM setup.
 4. [`ci.yaml`](.github/workflows/ci.yaml) runs `test.yaml` for the newest release of every
    minor version on pull requests.
 
@@ -358,8 +365,10 @@ packaging/image/                     containers.conf drop-ins and storage.conf f
 hack/upstream-releases.sh            upstream releases to build
 hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
-hack/functional-test.sh              functional tests for the built binaries
-hack/image-test.sh                   builds the image from dist/ and tests it
+hack/functional-test.sh              runs test/functional.bats against the built binaries
+hack/image-test.sh                   builds the image from dist/, runs test/image.bats
+hack/install-bats.sh                 pinned bats-core release for the tests
+test/                                bats tests and their helpers
 .github/actions/setup/               hide .build/ from Git, install Go, zig, libseccomp, syft, goreleaser
 .github/workflows/test.yaml          build one release, run functional tests
 .github/workflows/ci.yaml            pull requests: test.yaml for newest release per minor
@@ -367,5 +376,5 @@ hack/image-test.sh                   builds the image from dist/ and tests it
 .github/workflows/release.yaml       dispatch on a tag: test.yaml, then release, image, signing
 packaging/gpg.asc                    public GPG key for packages and the apt repository
 packaging/apt/podman.sources         apt source for the latest release
-renovate.json                        base image, action and libseccomp updates
+renovate.json                        base image, action, libseccomp and bats updates
 ```
