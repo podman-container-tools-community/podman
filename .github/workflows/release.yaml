@@ -66,14 +66,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Floating tags: latest and vX follow upstream's latest release, vX.Y the newest
-      # release of that minor.
+      # Floating tags: latest and vX follow the newest upstream release, vX.Y the newest
+      # release of that minor. The newest by version, not upstream's GitHub "latest"
+      # flag: that flag moves to a backport release (v5.8.x after v6.1.x) unless
+      # upstream resets it, and with it latest, vX, make_latest and the apt repository.
       - name: Check floating tags
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          latest="$(gh api repos/podman-container-tools/podman/releases/latest --jq .tag_name)"
-          latest_minor="$(.build/hack/upstream-releases.sh | grep -F "${GITHUB_REF_NAME%.*}." | tail -1)"
+          releases="$(.build/hack/upstream-releases.sh)"
+          latest="$(tail -1 <<<"${releases}")"
+          latest_minor="$(grep -F "${GITHUB_REF_NAME%.*}." <<<"${releases}" | tail -1)"
           {
             echo "IS_LATEST=$([[ "${GITHUB_REF_NAME}" == "${latest}" ]] && echo true || echo false)"
             echo "IS_LATEST_MINOR=$([[ "${GITHUB_REF_NAME}" == "${latest_minor}" ]] && echo true || echo false)"

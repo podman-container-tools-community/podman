@@ -42,7 +42,7 @@ Ubuntu).
 
 ### apt (Debian, Ubuntu)
 
-The apt repository follows upstream's latest release. It needs apt 2.3.10 or newer
+The apt repository follows the newest upstream release. It needs apt 2.3.10 or newer
 (Debian 12, Ubuntu 22.04 and later) for the inline key in the sources file:
 
 ```sh
@@ -57,7 +57,11 @@ To stay on one release, replace `releases/latest/download` in the URI with
 
 The runtime helpers come from the distribution, so older distribution releases may
 ship versions that are too old for current podman; check upstream's release notes for
-the minimum netavark, conmon and crun versions.
+the minimum netavark, conmon and crun versions. In particular, **Podman 6 needs
+netavark and aardvark-dns 2.0 and the configuration files of containers-common 0.68**
+(upstream's 6.0.0 release notes); the packages cannot express that, since the same
+package definition serves Podman 5 and 6. A distribution that still ships netavark 1.x
+(Debian 13 does) can run the Podman 5 packages, not Podman 6.
 
 The packages use epoch 6, so they stay installed when the distribution ships its own
 podman update. To go back to the distribution's package, remove the source and run
@@ -111,7 +115,8 @@ docker run --rm --user podman --device /dev/fuse \
 
 conmon, crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs, `bash`, `git`
 and the configuration in `/etc/containers` come from Alpine; for Podman 6, which needs
-netavark 2, netavark and aardvark-dns come from Alpine's edge repository. As upstream:
+netavark 2 and the configuration files of containers-common 0.68, netavark,
+aardvark-dns and container-libs come from Alpine's edge repository. As upstream:
 
 - containers share the outer container's namespaces
   ([`packaging/image/containers.conf`](packaging/image/containers.conf)), and rootless
@@ -165,8 +170,10 @@ compiled from podman's source:
 - `podman` links one C library that is not part of the Go module: **libseccomp**, built
   from its release tarball, checked against a pinned SHA-256
   ([`.github/actions/setup`](.github/actions/setup/action.yaml),
-  [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). The C compiler and musl libc
-  are [zig](https://ziglang.org/), pinned to a version.
+  [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). systemd's public headers,
+  needed by the `systemd` build tag, come from systemd's repository at the release's
+  pinned commit (systemd publishes no tarballs); nothing of systemd is linked. The C
+  compiler and musl libc are [zig](https://ziglang.org/), pinned to a version.
 - Builds run only in GitHub Actions. Binaries and checksums are signed keyless with
   [cosign](https://github.com/sigstore/cosign) via GitHub OIDC, images are signed the
   same way, and every file in `checksums.txt` gets a GitHub build provenance
@@ -194,7 +201,8 @@ they cannot be built verifiably.
    on it. It only runs once the repository variable `RELEASES_ENABLED` is `true`.
 2. `release.yaml` builds that tag: GitHub release, packages, apt repository, image on
    `ghcr.io`, signatures and attestations. Image tags: `vX.Y.Z` always, `vX.Y` for the
-   newest release of a minor, `vX` and `latest` for upstream's latest release.
+   newest release of a minor, `vX` and `latest` for the newest upstream release by
+   version (not upstream's GitHub "latest" flag, which a backport release can take).
 3. Before anything is published, [`test.yaml`](.github/workflows/test.yaml) builds the
    release and runs the [bats](https://github.com/bats-core/bats-core) tests in
    [`test/`](test), with bats from [mise](https://mise.jdx.dev) pinned in
@@ -312,10 +320,14 @@ on the released binary.
 
 Compared to a distribution package, the static `podman` has:
 
-- **No journald.** The `systemd` build tag needs libsystemd, which cannot be linked
-  statically. The `journald` log driver and events backend are unavailable; podman uses
-  `k8s-file` logs and `file` events. Set them in `containers.conf` if your
-  distribution's `containers-common` defaults to journald:
+- **No reading from journald.** `podman` is built with the `systemd` tag (so it uses
+  the systemd cgroup manager and systemd timers for health checks on a systemd host,
+  as the distribution's podman does), but podman reads the journal through
+  libsystemd loaded with `dlopen`, which a static binary cannot do. With the
+  `journald` log driver or events backend, `podman logs` and `podman events` fail. The
+  packages therefore install `/etc/containers/containers.conf.d/50-podman-community.conf`
+  with `k8s-file` logs and `file` events; keep those settings when you use the bare
+  binaries on a systemd host:
 
   ```toml
   [containers]
@@ -323,8 +335,6 @@ Compared to a distribution package, the static `podman` has:
   [engine]
   events_logger = "file"
   ```
-
-  `podman logs` works with `k8s-file`.
 - **No GPG signing.** `podman push --sign-by` and `podman image sign` fail.
   Verifying GPG signatures through `policy.json` (`signedBy` with `keyPath`) works.
   Sigstore signing and verification work fully. No Sequoia-PGP backend.

@@ -29,6 +29,14 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+LIBSECCOMP_VERSION: (?<currentValue>\\S+)\\s+LIBSECCOMP_SHA256: (?<currentDigest>[0-9a-f]{64})"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "systemd tag in the setup action, with the tag's commit as digest",
+      "managerFilePatterns": ["/^\\.github/actions/setup/action\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+SYSTEMD_VERSION: (?<currentValue>\\S+)\\s+SYSTEMD_COMMIT: (?<currentDigest>[0-9a-f]{40})"
+      ]
     }
   ]
 }

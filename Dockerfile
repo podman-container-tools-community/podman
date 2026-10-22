@@ -13,8 +13,10 @@ FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2
 # adds one layer on top of Alpine's.
 FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS delta
 ARG TARGETARCH
-# Podman 6 needs netavark 2, and 3.24 ships 1.17: true takes netavark and aardvark-dns
-# from the edge community repository instead.
+# Podman 6 needs netavark 2 and the configuration files of containers-common 0.68
+# (container-libs in Alpine), and 3.24 ships netavark 1.17 and containers-common
+# 0.64: true takes netavark, aardvark-dns and container-libs from the edge community
+# repository instead.
 ARG NETAVARK_FROM_EDGE=""
 SHELL ["/bin/ash", "-euo", "pipefail", "-c"]
 # Versions come from the Alpine release the base image pins; apk cannot pin older ones,
@@ -30,19 +32,19 @@ case "${TARGETARCH}" in
   *) echo "unsupported architecture ${TARGETARCH}" >&2; exit 1 ;;
 esac
 touch /marker
-netavark="netavark aardvark-dns"
+netavark="netavark aardvark-dns containers-common"
 if [ "${NETAVARK_FROM_EDGE}" = true ]; then
   echo "@edge https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /rootfs/etc/apk/repositories
-  netavark="netavark@edge aardvark-dns@edge"
+  netavark="netavark@edge aardvark-dns@edge container-libs@edge"
 fi
 # shadow-subids: newuidmap and newgidmap (file capabilities) for rootless.
 # fuse-overlayfs: rootless overlay where the kernel's is not allowed.
-# shellcheck disable=SC2086 # netavark holds two package names
+# shellcheck disable=SC2086 # netavark holds three package names
 # bash and git as in upstream's image: bash is the default command and the podman
 # user's shell, git serves podman build from Git URLs.
 apk --root /rootfs --arch "${arch}" --no-cache --no-scripts add \
   conmon crun ${netavark} passt catatonit fuse-overlayfs shadow-subids \
-  containers-common iptables nftables tzdata bash git
+  iptables nftables tzdata bash git
 # bash's own script would add it to /etc/shells.
 echo /bin/bash >> /rootfs/etc/shells
 
