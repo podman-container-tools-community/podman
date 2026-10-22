@@ -16,6 +16,15 @@
     },
     {
       "customType": "regex",
+      "description": "systemd release in the setup action; SYSTEMD_HEADERS_SHA256 has to be updated by hand",
+      "managerFilePatterns": ["/^\\.github/actions/setup/action\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+SYSTEMD_VERSION: (?<currentValue>\\S+)"
+      ],
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
       "description": "bats-core release in hack/install-bats.sh; BATS_SHA256 has to be updated by hand",
       "managerFilePatterns": ["/^hack/install-bats\\.sh$/"],
       "matchStrings": [

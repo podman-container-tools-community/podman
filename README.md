@@ -160,8 +160,10 @@ compiled from podman's source:
 - `podman` links one C library that is not part of the Go module: **libseccomp**, built
   from its release tarball, checked against a pinned SHA-256
   ([`.github/actions/setup`](.github/actions/setup/action.yaml),
-  [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). The C compiler and musl libc
-  are [zig](https://ziglang.org/), pinned to a version.
+  [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). systemd's public headers,
+  needed by the `systemd` build tag, come from systemd's repository at a tag and are
+  checked against pinned SHA-256s as well; nothing of systemd is linked. The C
+  compiler and musl libc are [zig](https://ziglang.org/), pinned to a version.
 - Builds run only in GitHub Actions. Binaries and checksums are signed keyless with
   [cosign](https://github.com/sigstore/cosign) via GitHub OIDC, images are signed the
   same way, and every file in `checksums.txt` gets a GitHub build provenance
@@ -308,10 +310,14 @@ on the released binary.
 
 Compared to a distribution package, the static `podman` has:
 
-- **No journald.** The `systemd` build tag needs libsystemd, which cannot be linked
-  statically. The `journald` log driver and events backend are unavailable; podman uses
-  `k8s-file` logs and `file` events. Set them in `containers.conf` if your
-  distribution's `containers-common` defaults to journald:
+- **No reading from journald.** `podman` is built with the `systemd` tag (so it uses
+  the systemd cgroup manager and systemd timers for health checks on a systemd host,
+  as the distribution's podman does), but podman reads the journal through
+  libsystemd loaded with `dlopen`, which a static binary cannot do. With the
+  `journald` log driver or events backend, `podman logs` and `podman events` fail. The
+  packages therefore install `/etc/containers/containers.conf.d/50-podman-community.conf`
+  with `k8s-file` logs and `file` events; keep those settings when you use the bare
+  binaries on a systemd host:
 
   ```toml
   [containers]
@@ -319,8 +325,6 @@ Compared to a distribution package, the static `podman` has:
   [engine]
   events_logger = "file"
   ```
-
-  `podman logs` works with `k8s-file`.
 - **No GPG signing.** `podman push --sign-by` and `podman image sign` fail.
   Verifying GPG signatures through `policy.json` (`signedBy` with `keyPath`) works.
   Sigstore signing and verification work fully. No Sequoia-PGP backend.

@@ -8,8 +8,9 @@
 # sum.golang.org (gomod.proxy), so neither the checkout nor this repository can alter
 # the source.
 # MODULE is upstream's module path (go.podman.io/podman/v6, github.com/containers/podman/v5).
-# SYSROOT holds the static musl libseccomp per architecture (hack/build-libseccomp.sh);
-# podman is linked with zig as C compiler, so both architectures build on one runner.
+# SYSROOT holds the static musl libseccomp per architecture (hack/build-libseccomp.sh)
+# and systemd's headers (include/systemd); podman is linked with zig as C compiler, so
+# both architectures build on one runner.
 # GPG_KEY_PATH names the GPG private key that signs the deb and rpm packages; unset
 # means unsigned.
 # IS_LATEST=true marks the newest upstream release, IS_LATEST_MINOR=true the newest
@@ -38,6 +39,7 @@ builds:
     binary: podman
     env:
       - CGO_ENABLED=1
+      - CGO_CFLAGS=-I{{ .Env.SYSROOT }}/include
     goos:
       - linux
     goarch:
@@ -60,16 +62,22 @@ builds:
       - -trimpath
     # Upstream's BUILDTAGS, minus what needs shared C libraries:
     # - seccomp: libseccomp, linked statically
+    # - systemd: without it podman defaults to the cgroupfs cgroup manager even on a
+    #   systemd host and never runs health checks on a schedule (systemd timers are
+    #   no-ops). Needs only systemd's headers: the journal reader loads libsystemd
+    #   with dlopen, which a static binary cannot do, so reading journald logs and
+    #   events fails; the packages' drop-in keeps logs and events in files
+    #   (packaging/package).
     # - apparmor: pure Go, calls apparmor_parser
     # - grpcnotrace: as upstream, smaller binary
     # - containers_image_openpgp: pure-Go OpenPGP instead of gpgme (no GPG signing)
     # - exclude_graphdriver_btrfs: btrfs driver needs btrfs-progs headers
     # - exclude_graphdriver_devicemapper, btrfs_noversion: needed by older releases,
     #   harmless for newer ones
-    # Not set: systemd (libsystemd: journald logging and events), libsubid,
-    # libsqlite3 (go-sqlite3 uses its bundled SQLite instead).
-    tags: &podman_tags
+    # Not set: libsubid, libsqlite3 (go-sqlite3 uses its bundled SQLite instead).
+    tags:
       - seccomp
+      - systemd
       - apparmor
       - grpcnotrace
       - containers_image_openpgp
@@ -111,7 +119,8 @@ builds:
       - -X {{ .Env.MODULE }}/libpod/define.buildOrigin=podman-container-tools-community
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-  # Helpers installed to /usr/libexec/podman; pure Go.
+  # Helpers installed to /usr/libexec/podman; pure Go, so without the systemd tag
+  # (its code is cgo).
   - id: quadlet
     main: ./cmd/quadlet
     binary: quadlet
@@ -124,7 +133,14 @@ builds:
       - arm64
     flags:
       - -trimpath
-    tags: *podman_tags
+    tags: &helper_tags
+      - seccomp
+      - apparmor
+      - grpcnotrace
+      - containers_image_openpgp
+      - exclude_graphdriver_btrfs
+      - exclude_graphdriver_devicemapper
+      - btrfs_noversion
     ldflags:
       - -s -w
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -141,7 +157,7 @@ builds:
       - arm64
     flags:
       - -trimpath
-    tags: *podman_tags
+    tags: *helper_tags
     ldflags:
       - -s -w
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -208,6 +224,10 @@ nfpms:
         dst: /usr/lib/systemd/user/
       - src: contrib/tmpfile/podman.conf
         dst: /usr/lib/tmpfiles.d/podman.conf
+      # Logs and events in files, since the static binary cannot read the journal.
+      - src: .build/packaging/package/50-podman-community.conf
+        dst: /etc/containers/containers.conf.d/50-podman-community.conf
+        type: config|noreplace
       - src: completions/bash/podman
         dst: /usr/share/bash-completion/completions/podman
       - src: completions/bash/podman-remote
@@ -352,10 +372,10 @@ release:
     Community-maintained static build of [podman {{ .Tag }}](https://github.com/podman-container-tools/podman/releases/tag/{{ .Tag }}).
     Not an official release of the podman project.
 
-    `podman` is linked statically against musl and libseccomp (cgo, zig as C compiler), with tags `seccomp apparmor grpcnotrace containers_image_openpgp exclude_graphdriver_btrfs`.
+    `podman` is linked statically against musl and libseccomp (cgo, zig as C compiler), with tags `seccomp systemd apparmor grpcnotrace containers_image_openpgp exclude_graphdriver_btrfs`.
     `podman-remote`, `quadlet` and `rootlessport` are built without cgo.
     podman needs conmon, crun (or runc), netavark and passt from your distribution.
-    Known limitations: no journald log driver or events backend, no GPG signing, no libsubid; see the README.
+    Known limitations: logs and events cannot be read from journald (use the k8s-file log driver and file events, the packages' default), no GPG signing, no libsubid; see the README.
     Sources were fetched from proxy.golang.org and verified against sum.golang.org;
     check with `go version -m podman-linux-amd64`.
 
