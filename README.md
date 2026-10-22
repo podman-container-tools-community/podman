@@ -114,7 +114,7 @@ netavark 2, netavark and aardvark-dns come from Alpine's edge repository. As ups
 
 Differences from upstream:
 
-- **No cpp and ssh.** `podman build` with a `Containerfile.in` and Git URLs over SSH do
+- **No `cpp` and `ssh`.** `podman build` with a `Containerfile.in` and Git URLs over SSH do
   not work.
 - **Registries.** Unqualified names are searched on `docker.io` only, without
   `short-name-mode = "enforcing"`; upstream also searches `registry.fedoraproject.org`
@@ -126,7 +126,7 @@ Differences from upstream:
   `/etc/containers/containers.conf.d/` and
   `/home/podman/.config/containers/containers.conf.d/`. Since Podman 6, a mounted
   `~/.config/containers/containers.conf` replaces `/etc/containers/containers.conf`
-  instead of adding to it; add your settings as a drop-in with another file name, since
+  instead of adding to it; add your settings as a drop-in with another filename, since
   a drop-in shadows one of the same name.
 
 On Ubuntu 24.04 and newer hosts, rootless podman in the image needs `sudo sysctl -w
