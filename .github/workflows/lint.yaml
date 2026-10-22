@@ -36,6 +36,8 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.pull_request.base.ref }}
           VALIDATE_BASH: true
           VALIDATE_BASH_EXEC: true
+          # Sourced helpers without a shebang, like test/helpers.bash, need no executable bit.
+          BASH_EXEC_IGNORE_LIBRARIES: true
           VALIDATE_DOCKERFILE_HADOLINT: true
           VALIDATE_EDITORCONFIG: true
           VALIDATE_GITHUB_ACTIONS: true
