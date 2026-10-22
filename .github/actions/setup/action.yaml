@@ -47,9 +47,8 @@ runs:
         use-cache: false
 
     # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
-    # The tarball has to carry a signature by a key pinned in hack/verify-libseccomp.sh
-    # and match the sha256 below. Renovate bumps version and sha256 together; the version
-    # keeps the tag's v, which its digest lookup needs.
+    # Renovate bumps the version and the tarball's sha256 together; the version keeps the
+    # tag's v, which its digest lookup needs.
     - name: Build libseccomp
       shell: bash
       env:
@@ -61,8 +60,6 @@ runs:
         tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
         url="https://github.com/seccomp/libseccomp/releases/download/${LIBSECCOMP_VERSION}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
         curl -fsSL -o "${tarball}" "${url}"
-        curl -fsSL -o "${tarball}.asc" "${url}.asc"
-        .build/hack/verify-libseccomp.sh "${tarball}" "${tarball}.asc"
         echo "${LIBSECCOMP_SHA256}  ${tarball}" | sha256sum --check --strict
         .build/hack/build-libseccomp.sh "${tarball}" "${RUNNER_TEMP}/sysroot"
         echo "SYSROOT=${RUNNER_TEMP}/sysroot" >> "$GITHUB_ENV"

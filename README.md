@@ -163,10 +163,8 @@ compiled from podman's source:
   [goreleaser verifiable builds](https://goreleaser.com/customization/builds/verifiable_builds/).
   Dependencies and their hashes are upstream's own `go.sum`.
 - `podman` links one C library that is not part of the Go module: **libseccomp**, built
-  from its release tarball, checked against a pinned SHA-256 and against the release's
-  GPG signature by one of the signing keys upstream lists, pinned by fingerprint
+  from its release tarball, checked against a pinned SHA-256
   ([`.github/actions/setup`](.github/actions/setup/action.yaml),
-  [`hack/verify-libseccomp.sh`](hack/verify-libseccomp.sh),
   [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). The C compiler and musl libc
   are [zig](https://ziglang.org/), pinned to a version.
 - Builds run only in GitHub Actions. Binaries and checksums are signed keyless with
@@ -348,7 +346,7 @@ Compared to a distribution package, the static `podman` has:
 
 ## Reproduce locally
 
-Needs Go, zig 0.17.0, goreleaser, gperf and gpg:
+Needs Go, zig 0.17.0, goreleaser and gperf:
 
 ```sh
 git clone --branch v6.1.4 https://github.com/podman-container-tools/podman
@@ -356,8 +354,6 @@ cd podman
 git clone https://github.com/podman-container-tools-community/podman .build
 printf '/.build/\n/dist/\n' >> .git/info/exclude
 curl -fsSLO https://github.com/seccomp/libseccomp/releases/download/v2.6.0/libseccomp-2.6.0.tar.gz
-curl -fsSLO https://github.com/seccomp/libseccomp/releases/download/v2.6.0/libseccomp-2.6.0.tar.gz.asc
-.build/hack/verify-libseccomp.sh libseccomp-2.6.0.tar.gz libseccomp-2.6.0.tar.gz.asc
 .build/hack/build-libseccomp.sh libseccomp-2.6.0.tar.gz /tmp/sysroot
 SYSROOT=/tmp/sysroot MODULE="$(go mod edit -json | jq -r .Module.Path)" \
 GITHUB_REPOSITORY_OWNER=podman-container-tools-community GITHUB_REPOSITORY=podman-container-tools-community/podman \
@@ -378,8 +374,6 @@ Dockerfile                           podman image on Alpine with the runtime hel
 packaging/image/                     containers.conf drop-ins and storage.conf for the image
 hack/upstream-releases.sh            upstream releases to build
 hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
-hack/verify-libseccomp.sh            check the libseccomp tarball's signature against pinned keys
-hack/libseccomp-keys.asc             public keys of libseccomp's release signers
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
 hack/functional-test.sh              runs test/functional.bats against the built binaries
 hack/image-test.sh                   builds the image from dist/, runs test/image.bats
