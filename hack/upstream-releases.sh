@@ -1,33 +1,36 @@
 #!/usr/bin/env bash
-# Prints the tags of upstream podman's GitHub releases since MIN_VERSION, oldest first.
-# Drafts and pre-releases are skipped.
+# Prints the tags of upstream's GitHub releases since MIN_VERSION, oldest first. Drafts
+# and pre-releases are skipped.
+# GitHub's releases API sometimes answers with an empty or short list, so the list is
+# fetched up to five times and accepted only if it contains upstream's latest release
+# and reaches back to MIN_VERSION (which must not predate upstream's first release).
 set -euo pipefail
 
 UPSTREAM="${UPSTREAM:-podman-container-tools/podman}"
 MIN_VERSION="${MIN_VERSION:-v5.3.0}"
 
-# The releases API sometimes answers 200 with an empty page, so a list counts only when
-# it contains upstream's latest release (first page) and a release older than
-# MIN_VERSION (last pages); otherwise it is read again.
+# True if $1 sorts before or equal to $2 as a version.
+version_le() {
+  [[ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" == "$1" ]]
+}
+
 latest="$(gh api "repos/${UPSTREAM}/releases/latest" --jq .tag_name)"
 for attempt in 1 2 3 4 5; do
-  tags="$(gh api --paginate "repos/${UPSTREAM}/releases" --jq '.[] | select(.draft or .prerelease | not) | .tag_name')"
-  oldest="$(sort -V <<<"${tags}" | head -1)"
-  if grep -qxF "${latest}" <<<"${tags}" && [[ -n "${oldest}" && "${oldest}" != "${MIN_VERSION}" &&
-    "$(printf '%s\n' "${MIN_VERSION}" "${oldest}" | sort -V | head -1)" == "${oldest}" ]]; then
+  tags="$(gh api --paginate "repos/${UPSTREAM}/releases" \
+    --jq '.[] | select(.draft or .prerelease | not) | .tag_name' | sort -V)"
+  oldest="$(head -1 <<<"${tags}")"
+  if grep -qxF "${latest}" <<<"${tags}" && [[ -n "${oldest}" ]] && version_le "${oldest}" "${MIN_VERSION}"; then
     break
   fi
   if ((attempt == 5)); then
-    echo "upstream-releases.sh: releases of ${UPSTREAM} incomplete after ${attempt} attempts" \
-      "(latest ${latest} or releases before ${MIN_VERSION} missing)" >&2
+    echo "::error::release list of ${UPSTREAM} is incomplete after ${attempt} attempts (latest ${latest} or releases before ${MIN_VERSION} missing)" >&2
     exit 1
   fi
-  sleep $((attempt * 2))
+  sleep $((attempt * 5))
 done
 
-sort -V <<<"${tags}" |
-  while read -r tag; do
-    if [[ "$(printf '%s\n' "${MIN_VERSION}" "${tag}" | sort -V | head -1)" == "${MIN_VERSION}" ]]; then
-      echo "${tag}"
-    fi
-  done
+while read -r tag; do
+  if version_le "${MIN_VERSION}" "${tag}"; then
+    echo "${tag}"
+  fi
+done <<<"${tags}"

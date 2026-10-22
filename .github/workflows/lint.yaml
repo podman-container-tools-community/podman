@@ -49,8 +49,3 @@ jobs:
           VALIDATE_RENOVATE: true
           VALIDATE_SHELL_SHFMT: true
           VALIDATE_SPELL_CODESPELL: true
-          # .goreleaser.yaml reads these; the release workflows set them.
-          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
-          IS_LATEST: "false"
-          IS_LATEST_MINOR: "false"
-

@@ -52,16 +52,18 @@ sudo apt update
 sudo apt install podman
 ```
 
-To stay on one release, replace `releases/latest/download` in the URI with
-`releases/download/vX.Y.Z`.
+The repository only serves the newest release: after a new upstream release, the `.deb`
+URLs in an older cached index are gone (404), so run `sudo apt update` before
+`apt install` or `apt upgrade`. To stay on one release, replace
+`releases/latest/download` in the URI with `releases/download/vX.Y.Z`.
 
 The runtime helpers come from the distribution, so older distribution releases may
 ship versions that are too old for current podman; check upstream's release notes for
 the minimum netavark, conmon and crun versions. In particular, **Podman 6 needs
 netavark and aardvark-dns 2.0 and the configuration files of containers-common 0.68**
-(upstream's 6.0.0 release notes); the packages cannot express that, since the same
-package definition serves Podman 5 and 6. A distribution that still ships netavark 1.x
-(Debian 13 does) can run the Podman 5 packages, not Podman 6.
+(upstream's 6.0.0 release notes). The Podman 6 packages depend on those versions, so
+they refuse to install on a distribution that still ships netavark 1.x (Debian 13 does);
+such a distribution can run the Podman 5 packages.
 
 The packages use epoch 6, so they stay installed when the distribution ships its own
 podman update. To go back to the distribution's package, remove the source and run
@@ -169,11 +171,11 @@ compiled from podman's source:
   Dependencies and their hashes are upstream's own `go.sum`.
 - `podman` links one C library that is not part of the Go module: **libseccomp**, built
   from its release tarball, checked against a pinned SHA-256
-  ([`.github/actions/setup`](.github/actions/setup/action.yaml),
-  [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). systemd's public headers,
-  needed by the `systemd` build tag, come from systemd's repository at the release's
-  pinned commit (systemd publishes no tarballs); nothing of systemd is linked. The C
-  compiler and musl libc are [zig](https://ziglang.org/), pinned to a version.
+  ([`hack/build-sysroot.sh`](hack/build-sysroot.sh)). systemd's public headers, needed
+  by the `systemd` build tag, come from systemd's repository at the release's pinned
+  commit (systemd publishes no tarballs); nothing of systemd is linked. The C compiler
+  and musl libc are [zig](https://ziglang.org/), pinned to a version in
+  [`.github/actions/setup`](.github/actions/setup/action.yaml).
 - Builds run only in GitHub Actions. Binaries and checksums are signed keyless with
   [cosign](https://github.com/sigstore/cosign) via GitHub OIDC, images are signed the
   same way, and every file in `checksums.txt` gets a GitHub build provenance
@@ -198,11 +200,17 @@ they cannot be built verifiably.
 1. [`sync.yaml`](.github/workflows/sync.yaml) runs every 6 hours, on every push to `main`
    and on demand. For every upstream release that has no tag here yet, it creates the tag
    on the current commit and dispatches [`release.yaml`](.github/workflows/release.yaml)
-   on it. It only runs once the repository variable `RELEASES_ENABLED` is `true`.
-2. `release.yaml` builds that tag: GitHub release, packages, apt repository, image on
-   `ghcr.io`, signatures and attestations. Image tags: `vX.Y.Z` always, `vX.Y` for the
-   newest release of a minor, `vX` and `latest` for the newest upstream release by
-   version (not upstream's GitHub "latest" flag, which a backport release can take).
+   on it. It only runs once the repository variable `RELEASES_ENABLED` is `true`, and
+   starts at most `MAX_RELEASES_PER_RUN` releases per run (a repository variable, default
+   10), newest first; the rest follow with the next runs.
+2. `release.yaml` builds that tag: GitHub release, packages, apt repository, images on
+   `ghcr.io` ([`hack/build-image.sh`](hack/build-image.sh)), signatures and attestations.
+   Image tags: `vX.Y.Z` and `vX.Y.Z-immutable` always, `vX.Y` for the newest release of
+   a minor, `vX` and `latest` for the newest upstream release by version (not upstream's
+   GitHub "latest" flag, which a backport release of an older minor can take).
+   `vX.Y.Z-immutable` is pushed only by the release itself and never moves; a release
+   run that fails after the image step and is retried keeps the first run's tag (same
+   binaries, since the build is reproducible, but that run's signature and SBOM).
 3. Before anything is published, [`test.yaml`](.github/workflows/test.yaml) builds the
    release and runs the [bats](https://github.com/bats-core/bats-core) tests in
    [`test/`](test), with bats from [mise](https://mise.jdx.dev) pinned in
@@ -234,13 +242,29 @@ A release can also be started by hand for an existing tag:
 gh workflow run release.yaml --ref v6.1.4
 ```
 
+Images are rebuilt without a new release when the Alpine base image or its packages
+change: [`rebuild.yaml`](.github/workflows/rebuild.yaml) runs weekly for the newest
+release of every minor, after a merge to `main` that changes the `Dockerfile`,
+`packaging/image` or `hack/build-image.sh`, and on demand (`-f all=true` for every
+release, `-f version=v6.1.4` for one). It downloads the release's archives, checks them
+against the cosign-signed `checksums.txt`, builds the image with the current `Dockerfile`
+through [`hack/build-image.sh`](hack/build-image.sh), runs `test/image.bats` against it and
+then pushes and signs all tags of that release except `v6.1.4-immutable`, which keeps the
+digest of the original release.
+No toolchain is involved, so the images always contain exactly the released binaries.
+Like `sync.yaml`, it only runs once `RELEASES_ENABLED` is `true`.
+
+```sh
+gh workflow run rebuild.yaml --repo podman-container-tools-community/podman -f all=true
+```
+
 ## How it works
 
 - The workflows check out upstream podman at the release tag into the workspace root and
   this repository into `.build/`. [`.github/actions/setup`](.github/actions/setup/action.yaml)
   hides `.build/` from Git (`.git/info/exclude`), so goreleaser sees a clean upstream
   checkout and takes module path, `go.sum`, tag, completions and systemd units from it.
-  The goreleaser configuration and `Dockerfile` are used from `.build/`.
+  The goreleaser configuration is used from `.build/`.
 - goreleaser's `gomod.proxy` then compiles `<module>/cmd/podman@<tag>` from the Go module
   proxy, verified against sum.golang.org, rather than from the checkout. The module path
   changed from `github.com/containers/podman/v5` to `go.podman.io/podman/v6` in 6.0; both
@@ -264,6 +288,10 @@ gh workflow run release.yaml --ref v6.1.4
 - Commit, build time (the commit's timestamp) and build origin
   (`podman-container-tools-community`) are set at link time, as upstream's Makefile
   does, and show in `podman version`.
+- The image is built by [`hack/build-image.sh`](hack/build-image.sh) from the binaries
+  goreleaser built (or, for rebuilds, the released archives) and `packaging/image/`,
+  with Docker buildx for both architectures, then signed with cosign. The same script
+  builds the image for the tests, so the image build is exercised on every pull request.
 - The release is signed keyless with cosign through GitHub OIDC: the checksum file
   (`checksums.txt.sigstore.json`) and the image. A GitHub build provenance
   attestation is created for every file in `checksums.txt`.
@@ -359,22 +387,21 @@ Compared to a distribution package, the static `podman` has:
 
 ## Reproduce locally
 
-Needs Go, zig 0.17.0, goreleaser and gperf:
+Needs Go, the zig release pinned in
+[`.github/actions/setup`](.github/actions/setup/action.yaml), goreleaser and gperf:
 
 ```sh
 git clone --branch v6.1.4 https://github.com/podman-container-tools/podman
 cd podman
 git clone https://github.com/podman-container-tools-community/podman .build
-printf '/.build/\n/dist/\n' >> .git/info/exclude
-curl -fsSLO https://github.com/seccomp/libseccomp/releases/download/v2.6.0/libseccomp-2.6.0.tar.gz
-.build/hack/build-libseccomp.sh libseccomp-2.6.0.tar.gz /tmp/sysroot
-SYSROOT=/tmp/sysroot MODULE="$(go mod edit -json | jq -r .Module.Path)" \
+printf '/.build/\n/dist/\n/.zig-cache/\n' >> .git/info/exclude
+.build/hack/build-sysroot.sh /tmp/sysroot
+SYSROOT=/tmp/sysroot GOTOOLCHAIN=local MODULE="$(go mod edit -json | jq -r .Module.Path)" \
 GITHUB_REPOSITORY_OWNER=podman-container-tools-community GITHUB_REPOSITORY=podman-container-tools-community/podman \
-GITHUB_REPOSITORY_NAME=podman IS_LATEST=false IS_LATEST_MINOR=false \
-  goreleaser release --config .build/.goreleaser.yaml --clean --skip=publish,sign,docker,sbom
+  goreleaser release --config .build/.goreleaser.yaml --clean --skip=publish,sign,sbom
 ```
 
-The libseccomp version and checksum are those in [`.github/actions/setup`](.github/actions/setup/action.yaml).
+The libseccomp version and checksum are those in [`hack/build-sysroot.sh`](hack/build-sysroot.sh).
 With the same Go version (see `go version -m`), the binaries are bit-for-bit identical.
 
 ## Layout
@@ -382,22 +409,24 @@ With the same Go version (see `go version -m`), the binaries are bit-for-bit ide
 This repository is checked out to `.build/` inside an upstream checkout.
 
 ```
-.goreleaser.yaml                     build, archive, package, image and signing configuration
-Dockerfile                           podman image on Alpine with the runtime helpers
-packaging/image/                     containers.conf drop-ins and storage.conf for the image
+.goreleaser.yaml                     build, archive, package and signing configuration
+Dockerfile                           image on Alpine with the runtime helpers; packages cross-installed with apk, no emulation
 hack/upstream-releases.sh            upstream releases to build
-hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
+hack/build-sysroot.sh                static musl libseccomp for both architectures, systemd headers
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
+hack/build-image.sh                  builds, pushes and signs the image from built or released binaries
 hack/functional-test.sh              runs test/functional.bats and test/signing.bats against the built binaries
-hack/image-test.sh                   builds the image from dist/, runs test/image.bats
-test/                                bats tests and their helpers
-.github/actions/setup/               hide .build/ from Git, install Go, zig, libseccomp, syft, goreleaser
-.github/workflows/test.yaml          build one release, run functional tests
+hack/image-test.sh                   builds the image from a dist directory, runs test/image.bats
+test/                                bats tests for the binaries and the image
+.github/actions/setup/               hide .build/ from Git, install Go, zig, the sysroot, syft, goreleaser
+.github/workflows/test.yaml          build one release, run functional and image tests
 .github/workflows/ci.yaml            pull requests: test.yaml for newest release per minor
 .github/workflows/sync.yaml          schedule and main: tag new releases, dispatch release.yaml
-.github/workflows/release.yaml       dispatch on a tag: test.yaml, then release, image, signing
+.github/workflows/release.yaml       dispatch on a tag: test.yaml, then release, images, signing
+.github/workflows/rebuild.yaml       weekly and on image changes: rebuild images from released binaries
 packaging/gpg.asc                    public GPG key for packages and the apt repository
 packaging/apt/podman.sources         apt source for the latest release
-renovate.json                        base image, action, libseccomp and bats updates
+packaging/image/                     containers.conf drop-ins and storage.conf for the image
+renovate.json                        base image, action, zig, libseccomp, systemd and bats updates
 mise.toml, mise.lock                 bats-core for the tests, installed with mise
 ```
