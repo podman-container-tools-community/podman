@@ -15,6 +15,10 @@ on:
         description: Upstream tag, e.g. v6.1.4
         type: string
         required: true
+      cache:
+        description: Restore and save the libseccomp build in the Actions cache (pull request CI only)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,6 +41,7 @@ jobs:
       - uses: ./.build/.github/actions/setup
         with:
           version: ${{ inputs.version }}
+          cache: ${{ inputs.cache }}
 
       # dockers_v2 builds and pushes in one step, so a dry run cannot build images.
       - name: Build
