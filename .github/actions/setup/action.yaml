@@ -8,6 +8,11 @@ inputs:
   version:
     description: Upstream tag being built, e.g. v6.1.4
     required: true
+  cache:
+    description: >-
+      Restore the libseccomp build from the Actions cache, and save it there on a miss.
+      For pull request CI only: releases always build it from source.
+    default: "false"
 
 runs:
   using: composite
@@ -46,22 +51,62 @@ runs:
         version: 0.17.0
         use-cache: false
 
-    # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
+    # Static libseccomp for the seccomp build tag.
     # Renovate bumps the version and the tarball's sha256 together; the version keeps the
     # tag's v, which its digest lookup needs.
-    - name: Build libseccomp
+    # The cache key holds everything the build depends on: libseccomp's version and
+    # tarball, zig, the runner and the build script. Binaries linked against a cached
+    # build are byte-identical to ones linked against a fresh build (libseccomp.a
+    # differs in debug info only, which the linker strips).
+    - name: libseccomp cache key
+      id: libseccomp
       shell: bash
       env:
         # renovate: datasource=github-release-attachments depName=seccomp/libseccomp
         LIBSECCOMP_VERSION: v2.6.1
         LIBSECCOMP_SHA256: 501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be
-      run: | # zizmor: ignore[github-env]
-        sudo apt-get install -y --no-install-recommends gperf
+        SCRIPT_HASH: ${{ hashFiles('.build/hack/build-libseccomp.sh') }}
+      run: |
+        {
+          echo "version=${LIBSECCOMP_VERSION}"
+          echo "sha256=${LIBSECCOMP_SHA256}"
+          echo "key=libseccomp-${LIBSECCOMP_VERSION}-${LIBSECCOMP_SHA256}-zig$(zig version)-${ImageOS}-${RUNNER_ARCH}-${SCRIPT_HASH}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore libseccomp
+      id: restore
+      if: inputs.cache == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/sysroot
+        key: ${{ steps.libseccomp.outputs.key }}
+
+    - name: Build libseccomp
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        LIBSECCOMP_VERSION: ${{ steps.libseccomp.outputs.version }}
+        LIBSECCOMP_SHA256: ${{ steps.libseccomp.outputs.sha256 }}
+      run: |
+        command -v gperf >/dev/null || sudo apt-get install -y --no-install-recommends gperf
         tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
         url="https://github.com/seccomp/libseccomp/releases/download/${LIBSECCOMP_VERSION}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
-        curl -fsSL -o "${tarball}" "${url}"
-        echo "${LIBSECCOMP_SHA256}  ${tarball}" | sha256sum --check --strict
+        curl -fsSLo "${tarball}" "${url}"
+        sha256sum --check --strict <<< "${LIBSECCOMP_SHA256}  ${tarball}"
         .build/hack/build-libseccomp.sh "${tarball}" "${RUNNER_TEMP}/sysroot"
+
+    # Saved before anything else goes into the sysroot.
+    - name: Save libseccomp
+      if: inputs.cache == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/sysroot
+        key: ${{ steps.libseccomp.outputs.key }}
+
+    # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
+    - name: Set SYSROOT
+      shell: bash
+      run: | # zizmor: ignore[github-env] only a fixed path goes into GITHUB_ENV
         echo "SYSROOT=${RUNNER_TEMP}/sysroot" >> "$GITHUB_ENV"
 
     # The systemd build tag needs only systemd's public headers: go-systemd's journal
