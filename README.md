@@ -181,7 +181,7 @@ they cannot be built verifiably.
 1. [`sync.yaml`](.github/workflows/sync.yaml) runs every 6 hours, on every push to `main`
    and on demand. For every upstream release that has no tag here yet, it creates the tag
    on the current commit and dispatches [`release.yaml`](.github/workflows/release.yaml)
-   on it.
+   on it. It only runs once the repository variable `RELEASES_ENABLED` is `true`.
 2. `release.yaml` builds that tag: GitHub release, packages, apt repository, image on
    `ghcr.io`, signatures and attestations. Image tags: `vX.Y.Z` always, `vX.Y` for the
    newest release of a minor, `vX` and `latest` for upstream's latest release.
