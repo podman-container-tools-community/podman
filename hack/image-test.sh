@@ -3,8 +3,8 @@
 # context, and runs test/image.bats against it as root and rootless:
 #   hack/image-test.sh <dist dir>
 # Builds every architecture found in <dist dir> (no emulation needed) and tests the
-# host's. Needs Docker with buildx, curl, and network access to quay.io, github.com
-# (bats, hack/install-bats.sh) and dl-cdn.alpinelinux.org.
+# host's. Needs Docker with buildx, curl, jq, bats from mise.toml on PATH (mise install)
+# and network access to quay.io and dl-cdn.alpinelinux.org.
 set -euo pipefail
 
 dist="$(realpath "$1")"
@@ -46,12 +46,11 @@ done
 echo "+ building linux/${host}" >&2
 build --load --platform "linux/${host}" -t "${image}"
 
-"${repo}/hack/install-bats.sh" "${work}/bats"
 status=0
 for user in root podman; do
   echo "=== image as ${user}" >&2
   IMAGE="${image}" IMAGE_USER="${user}" \
-    "${work}/bats/bin/bats" --formatter tap "${repo}/test/image.bats" || status=1
+    bats --formatter tap "${repo}/test/image.bats" || status=1
 done
 
 docker image rm "${image}" >/dev/null

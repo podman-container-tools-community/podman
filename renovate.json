@@ -21,9 +21,6 @@
       "automerge": false
     }
   ],
-  "gitIgnoredAuthors": [
-    "346494549+container-tools-automation[bot]@users.noreply.github.com"
-  ],
   "customManagers": [
     {
       "customType": "regex",
@@ -32,15 +29,6 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+LIBSECCOMP_VERSION: (?<currentValue>\\S+)\\s+LIBSECCOMP_SHA256: (?<currentDigest>[0-9a-f]{64})"
       ]
-    },
-    {
-      "customType": "regex",
-      "description": "bats-core release in hack/install-bats.sh; BATS_SHA256 follows via hack/update-checksums.sh",
-      "managerFilePatterns": ["/^hack/install-bats\\.sh$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+BATS_VERSION=(?<currentValue>\\S+)"
-      ],
-      "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ]
 }
