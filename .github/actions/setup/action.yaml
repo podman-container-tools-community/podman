@@ -47,19 +47,19 @@ runs:
         use-cache: false
 
     # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
-    # Renovate bumps the version, hack/update-checksums.sh updates the sha256 of the release
-    # tarball (.github/workflows/renovate.yaml).
+    # Renovate bumps the version and the tarball's sha256 together; the version keeps the
+    # tag's v, which its digest lookup needs.
     - name: Build libseccomp
       shell: bash
       env:
-        # renovate: datasource=github-releases depName=seccomp/libseccomp
-        LIBSECCOMP_VERSION: 2.6.0
-        LIBSECCOMP_SHA256: 83b6085232d1588c379dc9b9cae47bb37407cf262e6e74993c61ba72d2a784dc
+        # renovate: datasource=github-release-attachments depName=seccomp/libseccomp
+        LIBSECCOMP_VERSION: v2.6.1
+        LIBSECCOMP_SHA256: 501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be
       run: | # zizmor: ignore[github-env]
         sudo apt-get install -y --no-install-recommends gperf
-        tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION}.tar.gz"
-        curl -fsSL -o "${tarball}" \
-          "https://github.com/seccomp/libseccomp/releases/download/v${LIBSECCOMP_VERSION}/libseccomp-${LIBSECCOMP_VERSION}.tar.gz"
+        tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
+        url="https://github.com/seccomp/libseccomp/releases/download/${LIBSECCOMP_VERSION}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
+        curl -fsSL -o "${tarball}" "${url}"
         echo "${LIBSECCOMP_SHA256}  ${tarball}" | sha256sum --check --strict
         .build/hack/build-libseccomp.sh "${tarball}" "${RUNNER_TEMP}/sysroot"
         echo "SYSROOT=${RUNNER_TEMP}/sysroot" >> "$GITHUB_ENV"
