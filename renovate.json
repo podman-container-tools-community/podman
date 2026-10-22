@@ -4,10 +4,30 @@
     "config:recommended",
     "helpers:pinGitHubActionDigests"
   ],
+  "timezone": "Europe/Berlin",
+  "schedule": ["* * * * 5"],
+  "minimumReleaseAge": "7 days",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": null
+  },
+  "automerge": true,
+  "platformAutomerge": true,
+  "configMigration": true,
+  "packageRules": [
+    {
+      "description": "Major updates need a human review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "gitIgnoredAuthors": [
+    "346494549+container-tools-automation[bot]@users.noreply.github.com"
+  ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "libseccomp release in the setup action; LIBSECCOMP_SHA256 has to be updated by hand",
+      "description": "libseccomp release in the setup action; LIBSECCOMP_SHA256 follows via hack/update-checksums.sh",
       "managerFilePatterns": ["/^\\.github/actions/setup/action\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+LIBSECCOMP_VERSION: (?<currentValue>\\S+)"
@@ -16,19 +36,10 @@
     },
     {
       "customType": "regex",
-      "description": "systemd release in the setup action; SYSTEMD_HEADERS_SHA256 has to be updated by hand",
+      "description": "systemd release in the setup action; SYSTEMD_HEADERS_SHA256 follows via hack/update-checksums.sh",
       "managerFilePatterns": ["/^\\.github/actions/setup/action\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+SYSTEMD_VERSION: (?<currentValue>\\S+)"
-      ],
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "description": "bats-core release in hack/install-bats.sh; BATS_SHA256 has to be updated by hand",
-      "managerFilePatterns": ["/^hack/install-bats\\.sh$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+BATS_VERSION=(?<currentValue>\\S+)"
       ],
       "extractVersionTemplate": "^v(?<version>.*)$"
     }

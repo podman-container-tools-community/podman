@@ -47,6 +47,8 @@ runs:
         use-cache: false
 
     # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
+    # Renovate bumps the version, hack/update-checksums.sh updates the sha256 of the release
+    # tarball (.github/workflows/renovate.yaml).
     - name: Build libseccomp
       shell: bash
       env:

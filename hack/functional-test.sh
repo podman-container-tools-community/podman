@@ -7,7 +7,7 @@
 # built for. Without such a tag it falls back to Fedora 43 for Podman 5 and Fedora
 # rawhide for newer releases, since Podman 6 needs netavark 2. Puts the amd64 binaries
 # from <dist dir> in place and runs test/functional.bats as root and rootless, with the
-# bats release from hack/install-bats.sh (needs network access to github.com).
+# bats from mise.toml on PATH (mise install), mounted into the container.
 set -euo pipefail
 
 IMAGE=quay.io/libpod/alpine:latest
@@ -27,11 +27,13 @@ if [[ "$1" != --inside ]]; then
     fi
   done
   repo="$(cd "$(dirname "$0")/.." && pwd)"
-  bats="$(mktemp -d)"
-  trap 'rm -rf "${bats}"' EXIT
-  "${repo}/hack/install-bats.sh" "${bats}"
-  # Readable for the rootless test user.
-  chmod -R a+rX "${bats}"
+  # bats-core's root: bin/bats and the libexec/ and lib/ it loads. bats is plain bash, so
+  # the host's copy runs in the container too.
+  bats="$(dirname "$(dirname "$(realpath "$(command -v bats)")")")"
+  if [[ ! -d "${bats}/libexec/bats-core" ]]; then
+    echo "no bats-core installation at ${bats} (mise shims? use mise exec or activate)" >&2
+    exit 1
+  fi
   echo "+ testing podman ${version} in ${base}" >&2
   # Anonymous volumes keep container storage, and the overlays podman build (buildah)
   # mounts over the build context in /var/tmp, off the overlay root filesystem.
