@@ -8,13 +8,11 @@
 # sum.golang.org (gomod.proxy), so neither the checkout nor this repository can alter
 # the source.
 # MODULE is upstream's module path (go.podman.io/podman/v6, github.com/containers/podman/v5).
-# SYSROOT holds the static musl libseccomp per architecture (hack/build-libseccomp.sh)
-# and systemd's headers (include/systemd); podman is linked with zig as C compiler, so
-# both architectures build on one runner.
+# SYSROOT holds the static musl libseccomp per architecture and systemd's headers
+# (hack/build-sysroot.sh); podman is linked with zig as C compiler, so both architectures
+# build on one runner. The image is built separately by hack/build-image.sh.
 # GPG_KEY_PATH names the GPG private key that signs the deb and rpm packages; unset
-# means unsigned.
-# IS_LATEST=true marks the newest upstream release, IS_LATEST_MINOR=true the newest
-# release of its minor version; they decide which floating image tags move.
+# means unsigned. IS_LATEST=true marks the newest upstream release.
 version: 2
 
 project_name: podman
@@ -305,58 +303,6 @@ signs:
       - --yes
     artifacts: checksum
 
-# podman with the runtime helpers from Alpine (packaging/image, Dockerfile).
-dockers_v2:
-  - id: podman
-    ids: [podman, podman-remote, quadlet, rootlessport]
-    images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/podman"
-    tags:
-      - "{{ .Tag }}"
-      - '{{ if eq .Env.IS_LATEST_MINOR "true" }}v{{ .Major }}.{{ .Minor }}{{ end }}'
-      - '{{ if eq .Env.IS_LATEST "true" }}v{{ .Major }}{{ end }}'
-      - '{{ if eq .Env.IS_LATEST "true" }}latest{{ end }}'
-    dockerfile: .build/Dockerfile
-    extra_files:
-      - .build/packaging/image/containers.conf
-      - .build/packaging/image/storage.conf
-      - .build/packaging/image/storage-rootless.conf
-      - .build/packaging/image/podman-containers.conf
-    build_args:
-      # Podman 6 needs netavark 2 and containers-common 0.68 (container-libs), which
-      # Alpine has only in edge so far.
-      NETAVARK_FROM_EDGE: '{{ if ge .Major 6 }}true{{ end }}'
-    platforms:
-      - linux/amd64
-      - linux/arm64
-    annotations:
-      "org.opencontainers.image.title": "podman"
-      "org.opencontainers.image.description": "Community-built static podman {{ .Tag }} on Alpine with its runtime helpers (upstream: github.com/podman-container-tools/podman)"
-      "org.opencontainers.image.version": "{{ .Version }}"
-      "org.opencontainers.image.created": "{{ .CommitDate }}"
-      "org.opencontainers.image.source": "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
-      "org.opencontainers.image.revision": "{{ .FullCommit }}"
-      "org.opencontainers.image.licenses": "Apache-2.0"
-      "org.opencontainers.image.base.name": "{{ .BaseImage }}"
-      "org.opencontainers.image.base.digest": "{{ .BaseImageDigest }}"
-    # ghcr.io shows the description and links the repository from labels only, not from
-    # manifest annotations.
-    labels:
-      "org.opencontainers.image.title": "podman"
-      "org.opencontainers.image.description": "Community-built static podman {{ .Tag }} on Alpine with its runtime helpers (upstream: github.com/podman-container-tools/podman)"
-      "org.opencontainers.image.version": "{{ .Version }}"
-      "org.opencontainers.image.source": "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
-      "org.opencontainers.image.licenses": "Apache-2.0"
-    sbom: true
-
-docker_signs:
-  - cmd: cosign
-    artifacts: manifests
-    args:
-      - sign
-      - "${artifact}@${digest}"
-      - --yes
-
 release:
   # Published by release.yaml once the apt repository files are uploaded.
   draft: true
@@ -364,8 +310,8 @@ release:
   # The checkout's origin is upstream; releases go to this repository instead.
   github:
     owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
-    name: "{{ .Env.GITHUB_REPOSITORY_NAME }}"
-  make_latest: '{{ eq .Env.IS_LATEST "true" }}'
+    name: '{{ envOrDefault "GITHUB_REPOSITORY_NAME" .ProjectName }}'
+  make_latest: '{{ eq (envOrDefault "IS_LATEST" "false") "true" }}'
   prerelease: auto
   header: |
     Community-maintained static build of [podman {{ .Tag }}](https://github.com/podman-container-tools/podman/releases/tag/{{ .Tag }}).

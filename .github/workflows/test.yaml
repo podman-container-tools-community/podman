@@ -1,8 +1,9 @@
 name: test
 
-# Builds one upstream release without publishing anything, runs functional tests
-# (hack/functional-test.sh) against the amd64 binaries and tests the image
-# (hack/image-test.sh).
+# Builds one upstream release without publishing anything, runs the functional tests
+# (hack/functional-test.sh) against the amd64 binaries, as root and rootless, and builds
+# and tests the image (hack/image-test.sh). Both run bats-core; each test case shows up
+# in the log.
 #
 # Upstream's system and e2e tests are not run: they expect a test VM set up by
 # upstream's CI and a matching podman-testing binary, so they fail for reasons
@@ -16,7 +17,7 @@ on:
         type: string
         required: true
       cache:
-        description: Restore and save the libseccomp build in the Actions cache (pull request CI only)
+        description: Restore and save the C sysroot in the Actions cache (pull request CI only)
         type: boolean
         default: false
 
@@ -43,13 +44,8 @@ jobs:
           version: ${{ inputs.version }}
           cache: ${{ inputs.cache }}
 
-      # dockers_v2 builds and pushes in one step, so a dry run cannot build images.
       - name: Build
-        run: goreleaser release --config .build/.goreleaser.yaml --clean --skip=publish,sign,docker
-        env:
-          IS_LATEST: "false"
-          IS_LATEST_MINOR: "false"
-          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: goreleaser release --config "${GORELEASER_CONFIG}" --clean --skip=publish,sign
 
       - name: Smoke test
         run: |
@@ -70,15 +66,12 @@ jobs:
           cache: false
 
       # Ubuntu 26.04, like 24.04, denies unprivileged user namespaces to unconfined
-      # processes, which includes the rootless tests in the privileged container.
+      # processes, which the rootless tests need.
+      - name: Allow user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Functional tests
-        run: |
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          .build/hack/functional-test.sh dist
+        run: .build/hack/functional-test.sh dist
 
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      # Builds the image for both architectures from dist/ as goreleaser would (no
-      # emulation needed) and runs the amd64 one as root and rootless.
       - name: Image tests
         run: .build/hack/image-test.sh dist

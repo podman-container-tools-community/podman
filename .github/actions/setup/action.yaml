@@ -2,7 +2,8 @@ name: Set up build
 description: >-
   Expects upstream podman checked out at a release tag in the workspace root and this
   repository in .build/. Hides .build/ from git, so goreleaser sees a clean upstream
-  checkout, and installs Go, zig, a static libseccomp, syft and goreleaser.
+  checkout, and installs Go, zig, the C sysroot (hack/build-sysroot.sh), syft and
+  goreleaser.
 
 inputs:
   version:
@@ -10,8 +11,8 @@ inputs:
     required: true
   cache:
     description: >-
-      Restore the libseccomp build from the Actions cache, and save it there on a miss.
-      For pull request CI only: releases always build it from source.
+      Restore the C sysroot from the Actions cache, and save it there on a miss. For pull
+      request CI only: releases always build it from source.
     default: "false"
 
 runs:
@@ -28,7 +29,7 @@ runs:
           exit 1
         fi
 
-    # The newest Go, except where it breaks a release's pinned dependencies.
+    # The newest Go, except where it breaks a release's pinned dependencies (none so far).
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: stable
@@ -45,89 +46,65 @@ runs:
           echo "MODULE=$(go mod edit -json | jq -r .Module.Path)"
         } >> "$GITHUB_ENV"
 
-    # C compiler for both architectures, with musl for static linking.
+    # C compiler for both architectures, with musl for static linking. Its version is part
+    # of the binaries (the C objects), so it is pinned here; Renovate bumps it.
     - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
       with:
+        # renovate: datasource=github-releases depName=ziglang/zig
         version: 0.17.0
         use-cache: false
 
-    # Static libseccomp for the seccomp build tag.
-    # Renovate bumps the version and the tarball's sha256 together; the version keeps the
-    # tag's v, which its digest lookup needs.
-    # The cache key holds everything the build depends on: libseccomp's version and
-    # tarball, zig, the runner and the build script. Binaries linked against a cached
-    # build are byte-identical to ones linked against a fresh build (libseccomp.a
-    # differs in debug info only, which the linker strips).
-    - name: libseccomp cache key
-      id: libseccomp
+    # C headers and static libraries the build needs, for both architectures. Pull request
+    # CI caches the sysroot (inputs.cache); releases always build it from source. The key
+    # holds everything it depends on: the build script with its version pins,
+    # musl-compat.h, zig, the runner image and the architecture. Binaries linked against
+    # a cached sysroot are byte-identical to ones linked against a fresh build.
+    - name: Sysroot cache key
+      id: sysroot
       shell: bash
       env:
-        # renovate: datasource=github-release-attachments depName=seccomp/libseccomp
-        LIBSECCOMP_VERSION: v2.6.1
-        LIBSECCOMP_SHA256: 501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be
-        SCRIPT_HASH: ${{ hashFiles('.build/hack/build-libseccomp.sh') }}
-      run: |
-        {
-          echo "version=${LIBSECCOMP_VERSION}"
-          echo "sha256=${LIBSECCOMP_SHA256}"
-          echo "key=libseccomp-${LIBSECCOMP_VERSION}-${LIBSECCOMP_SHA256}-zig$(zig version)-${ImageOS}-${RUNNER_ARCH}-${SCRIPT_HASH}"
-        } >> "$GITHUB_OUTPUT"
+        SCRIPT_HASH: ${{ hashFiles('.build/hack/build-sysroot.sh', '.build/hack/musl-compat.h') }}
+      run: echo "key=sysroot-zig$(zig version)-${ImageOS}-${RUNNER_ARCH}-${SCRIPT_HASH}" >> "$GITHUB_OUTPUT"
 
-    - name: Restore libseccomp
+    - name: Restore sysroot
       id: restore
       if: inputs.cache == 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/sysroot
-        key: ${{ steps.libseccomp.outputs.key }}
+        key: ${{ steps.sysroot.outputs.key }}
 
-    - name: Build libseccomp
+    - name: Build sysroot
       if: steps.restore.outputs.cache-hit != 'true'
       shell: bash
-      env:
-        LIBSECCOMP_VERSION: ${{ steps.libseccomp.outputs.version }}
-        LIBSECCOMP_SHA256: ${{ steps.libseccomp.outputs.sha256 }}
-      run: |
-        command -v gperf >/dev/null || sudo apt-get install -y --no-install-recommends gperf
-        tarball="${RUNNER_TEMP}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
-        url="https://github.com/seccomp/libseccomp/releases/download/${LIBSECCOMP_VERSION}/libseccomp-${LIBSECCOMP_VERSION#v}.tar.gz"
-        curl -fsSLo "${tarball}" "${url}"
-        sha256sum --check --strict <<< "${LIBSECCOMP_SHA256}  ${tarball}"
-        .build/hack/build-libseccomp.sh "${tarball}" "${RUNNER_TEMP}/sysroot"
+      run: .build/hack/build-sysroot.sh "${RUNNER_TEMP}/sysroot"
 
-    # Saved before anything else goes into the sysroot.
-    - name: Save libseccomp
+    - name: Save sysroot
       if: inputs.cache == 'true' && steps.restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/sysroot
-        key: ${{ steps.libseccomp.outputs.key }}
+        key: ${{ steps.sysroot.outputs.key }}
 
-    # SYSROOT is a fixed path under RUNNER_TEMP, nothing taken from the build.
     - name: Set SYSROOT
       shell: bash
       run: | # zizmor: ignore[github-env] only a fixed path goes into GITHUB_ENV
         echo "SYSROOT=${RUNNER_TEMP}/sysroot" >> "$GITHUB_ENV"
 
-    # The systemd build tag needs only systemd's public headers: go-systemd's journal
-    # reader includes them and loads libsystemd with dlopen at run time, nothing is
-    # linked. systemd publishes no release tarballs, so the four files come from its
-    # repository at the release's commit, which pins their content; Renovate bumps the
-    # tag and the commit together (github-tags digest).
-    - name: Install systemd headers
+    # goreleaser's gomod.proxy refuses go.mod replace directives, which a module proxy
+    # build would ignore. Such releases are built from the checkout and its vendor
+    # directory instead.
+    - name: Pick goreleaser configuration
       shell: bash
-      env:
-        # renovate: datasource=github-tags depName=systemd/systemd
-        SYSTEMD_VERSION: v262.1
-        SYSTEMD_COMMIT: 73612ea502d53baf9b0df4336cfc296a7ee0d524
-      run: |
-        dir="${SYSROOT}/include/systemd"
-        mkdir -p "${dir}"
-        echo "systemd ${SYSTEMD_VERSION} (${SYSTEMD_COMMIT})"
-        for header in _sd-common.h sd-daemon.h sd-id128.h sd-journal.h; do
-          curl -fsSL -o "${dir}/${header}" \
-            "https://raw.githubusercontent.com/systemd/systemd/${SYSTEMD_COMMIT}/src/systemd/${header}"
-        done
+      run: | # zizmor: ignore[github-env] only a fixed path goes into GITHUB_ENV
+        config=.build/.goreleaser.yaml
+        if grep -qE '^replace|=>' go.mod; then
+          echo "::notice::go.mod has replace directives, building from the checkout instead of the Go module proxy"
+          config="${RUNNER_TEMP}/goreleaser.yaml"
+          sed 's/^  proxy: true$/  proxy: false/' .build/.goreleaser.yaml > "${config}"
+          grep -qx '  proxy: false' "${config}"
+        fi
+        echo "GORELEASER_CONFIG=${config}" >> "$GITHUB_ENV"
 
     - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
 

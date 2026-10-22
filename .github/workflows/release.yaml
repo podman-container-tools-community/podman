@@ -3,11 +3,12 @@ run-name: ${{ github.ref_name }}
 
 # Releases the upstream version named by the tag this workflow runs on: GitHub release
 # with binaries, signed deb/rpm packages, apt repository, SBOMs and cosign signature,
-# images on ghcr.io, and build provenance.
+# images on ghcr.io (hack/build-image.sh), and build provenance.
 # test.yaml (build and functional tests) has to pass first.
 #
 # Started by sync.yaml, or by hand for an existing tag:
 #   gh workflow run release.yaml --ref v6.1.4
+# Images of existing releases are rebuilt by rebuild.yaml.
 
 on:
   workflow_dispatch:
@@ -34,6 +35,8 @@ jobs:
       packages: write # ghcr.io
       id-token: write # cosign keyless signing and attestations
       attestations: write
+    env:
+      VERSION: ${{ github.ref_name }}
     steps:
       - name: Check ref
         if: github.ref_type != 'tag'
@@ -68,18 +71,19 @@ jobs:
 
       # Floating tags: latest and vX follow the newest upstream release, vX.Y the newest
       # release of that minor. The newest by version, not upstream's GitHub "latest"
-      # flag: that flag moves to a backport release (v5.8.x after v6.1.x) unless
-      # upstream resets it, and with it latest, vX, make_latest and the apt repository.
+      # flag: that flag moves to a backport release of an older minor unless upstream
+      # resets it, and with it latest, vX, make_latest and the apt repository.
       - name: Check floating tags
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
           releases="$(.build/hack/upstream-releases.sh)"
           latest="$(tail -1 <<<"${releases}")"
-          latest_minor="$(grep -F "${GITHUB_REF_NAME%.*}." <<<"${releases}" | tail -1)"
+          latest_minor="$(grep -F "${VERSION%.*}." <<<"${releases}" | tail -1)"
           {
-            echo "IS_LATEST=$([[ "${GITHUB_REF_NAME}" == "${latest}" ]] && echo true || echo false)"
-            echo "IS_LATEST_MINOR=$([[ "${GITHUB_REF_NAME}" == "${latest_minor}" ]] && echo true || echo false)"
+            echo "IS_LATEST=$([[ "${VERSION}" == "${latest}" ]] && echo true || echo false)"
+            echo "IS_LATEST_MINOR=$([[ "${VERSION}" == "${latest_minor}" ]] && echo true || echo false)"
           } >> "$GITHUB_ENV"
 
       # Key for the deb/rpm signatures and the apt repository (packaging/gpg.asc).
@@ -94,14 +98,23 @@ jobs:
           echo "GPG_KEY_PATH=${key}" >> "$GITHUB_ENV"
 
       - name: Release
-        run: goreleaser release --config .build/.goreleaser.yaml --clean
+        run: goreleaser release --config "${GORELEASER_CONFIG}" --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
           NFPM_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
+      # From the binaries goreleaser just built, with the vX.Y.Z-immutable tag only the
+      # release pushes. Annotated with the upstream commit of the checkout.
+      - name: Build and push images
+        run: |
+          REVISION="$(git rev-parse HEAD)" CREATED="$(git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)" \
+            IMMUTABLE=true .build/hack/build-image.sh --push dist "ghcr.io/${GITHUB_REPOSITORY}"
+        env:
+          TZ: UTC
+
       # Flat apt repository in the release assets; packaging/apt/podman.sources points at
-      # releases/latest/download, which follows upstream's latest release. goreleaser
+      # releases/latest/download, which follows the newest upstream release. goreleaser
       # leaves the release as a draft, so it is published only with these files.
       - name: Add apt repository
         env:
@@ -122,13 +135,13 @@ jobs:
           }
           sign --clearsign -o InRelease Release
           sign --armor --detach-sign -o Release.gpg Release
-          gh release upload "${GITHUB_REF_NAME}" Packages Packages.xz Release InRelease Release.gpg \
+          gh release upload "${VERSION}" Packages Packages.xz Release InRelease Release.gpg \
             --repo "${GITHUB_REPOSITORY}" --clobber
 
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest="${IS_LATEST}"
+        run: gh release edit "${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest="${IS_LATEST}"
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

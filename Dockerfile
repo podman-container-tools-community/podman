@@ -1,17 +1,18 @@
 # syntax=docker/dockerfile:1
 
-# The static release binaries with the runtime helpers from Alpine, configured like
-# upstream's quay.io/podman/stable image.
-# Pinned by index digest so image builds stay reproducible; Renovate bumps it (both FROM
-# lines name the same image).
-FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS base
+# The static release binaries with their runtime helpers from Alpine, configured like
+# upstream's quay.io/podman/stable image. Built by hack/build-image.sh from a context of
+# linux/<arch>/<binaries> and packaging/image/.
+# Pinned by version and index digest so image builds stay reproducible; Renovate bumps it
+# (both FROM lines name the same image).
+FROM alpine:3.24.3@sha256:b3413572228e34bd1c9245f5565e6cd127005655e8a7899aef33d8e83255c9e6 AS base
 
 # Everything that has to run happens here, on the build host's platform, so no emulation
 # is needed: apk installs the target architecture's packages into a copy of the target's
 # file system, without their scripts (a modprobe for fuse-overlayfs and triggers that the
 # base image has already run). Only what changed ends up in /delta, so the final image
 # adds one layer on top of Alpine's.
-FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS delta
+FROM --platform=$BUILDPLATFORM alpine:3.24.3@sha256:b3413572228e34bd1c9245f5565e6cd127005655e8a7899aef33d8e83255c9e6 AS delta
 ARG TARGETARCH
 # Podman 6 needs netavark 2 and the configuration files of containers-common 0.68
 # (container-libs in Alpine), and 3.24 ships netavark 1.17 and containers-common
@@ -90,10 +91,10 @@ COPY --from=delta /delta/ /
 # replaces /etc/containers/containers.conf instead of adding to it, but drop-ins are
 # read from every directory. A drop-in shadows one of the same name in an earlier
 # directory, so the user's has its own name.
-COPY .build/packaging/image/containers.conf /etc/containers/containers.conf.d/50-podman-in-container.conf
-COPY --chown=1000:1000 .build/packaging/image/podman-containers.conf /home/podman/.config/containers/containers.conf.d/60-rootless-in-container.conf
-COPY .build/packaging/image/storage.conf /etc/containers/storage.conf
-COPY --chown=1000:1000 .build/packaging/image/storage-rootless.conf /home/podman/.config/containers/storage.conf
+COPY packaging/image/containers.conf /etc/containers/containers.conf.d/50-podman-in-container.conf
+COPY --chown=1000:1000 packaging/image/podman-containers.conf /home/podman/.config/containers/containers.conf.d/60-rootless-in-container.conf
+COPY packaging/image/storage.conf /etc/containers/storage.conf
+COPY --chown=1000:1000 packaging/image/storage-rootless.conf /home/podman/.config/containers/storage.conf
 COPY $TARGETPLATFORM/podman $TARGETPLATFORM/podman-remote /usr/bin/
 COPY $TARGETPLATFORM/quadlet $TARGETPLATFORM/rootlessport /usr/libexec/podman/
 # Container storage and the overlays podman build mounts over the build context (in
