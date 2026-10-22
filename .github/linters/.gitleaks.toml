@@ -1,0 +1,8 @@
+# super-linter's gitleaks rules, plus the sigstore key pair the signing tests use. It
+# signs nothing outside test/signing.bats.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test-only sigstore key"
+paths = ['''(^|/)test/sigstore/''']

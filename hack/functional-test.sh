@@ -7,7 +7,9 @@
 # built for. Without such a tag it falls back to Fedora 43 for Podman 5 and Fedora
 # rawhide for newer releases, since Podman 6 needs netavark 2. Puts the amd64 binaries
 # from <dist dir> in place and runs test/functional.bats as root and rootless, with the
-# bats from mise.toml on PATH (mise install), mounted into the container.
+# bats from mise.toml on PATH (mise install), mounted into the container. test/signing.bats
+# runs after it and pushes to a registry:3 container on a Docker network shared only with
+# the test container.
 set -euo pipefail
 
 IMAGE=quay.io/libpod/alpine:latest
@@ -35,9 +37,16 @@ if [[ "$1" != --inside ]]; then
     exit 1
   fi
   echo "+ testing podman ${version} in ${base}" >&2
+  # Named after this process, so only what this run created is removed.
+  name="podman-functional-$$"
+  trap 'docker rm -f -v "${name}-registry" >/dev/null 2>&1 || true
+    docker network rm "${name}" >/dev/null 2>&1 || true' EXIT
+  docker network create "${name}" >/dev/null
+  docker run -d --rm --name "${name}-registry" --network "${name}" --network-alias registry \
+    docker.io/library/registry:3 >/dev/null
   # Anonymous volumes keep container storage, and the overlays podman build (buildah)
   # mounts over the build context in /var/tmp, off the overlay root filesystem.
-  docker run --rm --privileged --cgroupns=private \
+  docker run --rm --privileged --cgroupns=private --network "${name}" \
     -v "${dist}:/dist:ro" \
     -v "$(realpath "$0"):/functional-test.sh:ro" \
     -v "${repo}/test:/tests:ro" -v "${bats}:/bats:ro" \
@@ -46,9 +55,12 @@ if [[ "$1" != --inside ]]; then
   exit
 fi
 
+REGISTRY=registry:5000
+
 echo "+ installing runtime helpers (no-op where the image has them)" >&2
 dnf install -y -q --setopt=install_weak_deps=False \
-  catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils util-linux >/dev/null
+  catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils util-linux \
+  gnupg2 jq >/dev/null
 # Fedora's base image carries newuidmap and newgidmap without their file capabilities,
 # which rootless podman needs; quay.io/podman/stable has them already.
 rpm --setcaps shadow-utils
@@ -78,11 +90,11 @@ podman version
 status=0
 
 echo "=== root" >&2
-IMAGE="${IMAGE}" /bats/bin/bats --formatter tap /tests/functional.bats || status=1
+IMAGE="${IMAGE}" REGISTRY="${REGISTRY}" /bats/bin/bats --formatter tap /tests/functional.bats /tests/signing.bats || status=1
 
 echo "=== rootless" >&2
 useradd -m tester
-su - tester -c "export IMAGE=${IMAGE} XDG_RUNTIME_DIR=/tmp/run-tester &&
-  mkdir -p -m 700 \$XDG_RUNTIME_DIR && /bats/bin/bats --formatter tap /tests/functional.bats" || status=1
+su - tester -c "export IMAGE=${IMAGE} REGISTRY=${REGISTRY} XDG_RUNTIME_DIR=/tmp/run-tester &&
+  mkdir -p -m 700 \$XDG_RUNTIME_DIR && /bats/bin/bats --formatter tap /tests/functional.bats /tests/signing.bats" || status=1
 
 exit "${status}"
