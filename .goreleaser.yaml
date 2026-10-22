@@ -39,7 +39,9 @@ builds:
     binary: podman
     env:
       - CGO_ENABLED=1
-      - CGO_CFLAGS=-I{{ .Env.SYSROOT }}/include
+      # Setting CGO_CFLAGS replaces Go's default "-O2 -g"; without -O2 zig compiles in
+      # debug mode with the UBSan runtime, whose symbols nothing provides.
+      - CGO_CFLAGS=-O2 -g -I{{ .Env.SYSROOT }}/include
     goos:
       - linux
     goarch:
