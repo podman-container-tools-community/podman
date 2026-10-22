@@ -26,17 +26,21 @@ if [[ "$1" != --inside ]]; then
     fi
   done
   echo "+ testing podman ${version} in ${base}" >&2
-  # Anonymous volumes keep container storage off the overlay root filesystem.
+  # Anonymous volumes keep container storage, and the overlays podman build (buildah)
+  # mounts over the build context in /var/tmp, off the overlay root filesystem.
   exec docker run --rm --privileged --cgroupns=private \
     -v "${dist}:/dist:ro" \
     -v "$(realpath "$0"):/functional-test.sh:ro" \
-    -v /var/lib/containers -v /home \
+    -v /var/lib/containers -v /home -v /var/tmp \
     "${base}" /functional-test.sh --inside
 fi
 
 echo "+ installing runtime helpers (no-op where the image has them)" >&2
 dnf install -y -q --setopt=install_weak_deps=False \
-  catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils jq >/dev/null
+  catatonit conmon crun netavark aardvark-dns passt containers-common shadow-utils util-linux jq >/dev/null
+# Fedora's base image carries newuidmap and newgidmap without their file capabilities,
+# which rootless podman needs.
+chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
 install -m 755 /dist/podman_linux_amd64_v1/podman /usr/bin/podman
 install -m 755 /dist/podman-remote_linux_amd64_v1/podman-remote /usr/bin/podman-remote
 install -D -m 755 /dist/rootlessport_linux_amd64_v1/rootlessport /usr/libexec/podman/rootlessport

@@ -98,6 +98,11 @@ docker run --rm --privileged --user podman ghcr.io/podman-container-tools-commun
   run --rm quay.io/libpod/alpine:latest echo hello
 ```
 
+The image needs `--privileged`: podman mounts file systems and creates network
+namespaces, and rootless podman also user namespaces. On Ubuntu 24.04 and newer hosts,
+rootless podman in the image also needs `sudo sysctl -w
+kernel.apparmor_restrict_unprivileged_userns=0`, as in the tests.
+
 `podman-remote` talks to a podman API socket:
 
 ```sh

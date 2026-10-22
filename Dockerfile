@@ -66,6 +66,7 @@ COPY .build/packaging/image/containers.conf /etc/containers/containers.conf
 COPY --chown=1000:1000 .build/packaging/image/storage.conf /home/podman/.config/containers/storage.conf
 COPY $TARGETPLATFORM/podman $TARGETPLATFORM/podman-remote /usr/bin/
 COPY $TARGETPLATFORM/quadlet $TARGETPLATFORM/rootlessport /usr/libexec/podman/
-# Container storage needs a file system that is not the image's overlay.
-VOLUME ["/var/lib/containers", "/home/podman/.local/share/containers"]
+# Container storage and the overlays podman build mounts over the build context (in
+# /var/tmp) need a file system that is not the image's overlay.
+VOLUME ["/var/lib/containers", "/var/tmp", "/home/podman/.local/share/containers"]
 ENTRYPOINT ["/usr/bin/podman"]

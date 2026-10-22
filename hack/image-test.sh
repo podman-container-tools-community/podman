@@ -65,6 +65,12 @@ for user in root podman; do
     sh -c 'while true; do printf "HTTP/1.0 200 OK\r\n\r\nok\n" | nc -l -p 8080; done' >/dev/null
   test "$(in_image run --rm --network testnet "${base}" wget -q -T 5 -O - http://web:8080/)" = ok
   test "$(curl -s --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:18080/)" = ok
+
+  # podman build (buildah) mounts an overlay over the build context, with its upper
+  # directory in /var/tmp.
+  docker exec "${name}" sh -c 'mkdir -p /tmp/ctx && printf "FROM %s\nRUN echo built > /built\n" "$1" >/tmp/ctx/Containerfile' sh "${base}"
+  in_image build -q -t localhost/built /tmp/ctx >/dev/null
+  test "$(in_image run --rm localhost/built cat /built)" = built
   docker rm -f "${name}" >/dev/null
 done
 
