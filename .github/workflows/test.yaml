@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,8 +55,8 @@ jobs:
             file "${binary}" | tee /dev/stderr | grep -q 'statically linked'
           done
 
-      # Ubuntu 24.04 denies unprivileged user namespaces to unconfined processes, which
-      # includes the rootless tests in the privileged container.
+      # Ubuntu 26.04, like 24.04, denies unprivileged user namespaces to unconfined
+      # processes, which includes the rootless tests in the privileged container.
       - name: Functional tests
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
