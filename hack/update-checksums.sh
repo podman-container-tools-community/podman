@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Recomputes the SHA-256 pinned next to each version Renovate bumps:
+# Recomputes the SHA-256 pinned next to each version Renovate bumps, and adds the SHA-256
+# of downloads that mise.lock has no checksum for:
 #   hack/update-checksums.sh
 # Runs on Renovate pull requests via .github/workflows/renovate.yaml, and locally.
-# Needs curl and shasum or sha256sum.
+# Needs mise, curl and shasum or sha256sum.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -39,7 +40,38 @@ pin() {
   echo "${name} ${version}: ${hash}"
 }
 
+# lock_checksums: refreshes mise.lock for mise.toml and adds a SHA-256 to every download
+# that has none. mise lock records checksums only where a release publishes them, and
+# GitHub's source archives, which bats-core is installed from, come without.
+lock_checksums() {
+  local line url checksum="" hashed="" hash="" out
+  mise lock
+  out="$(mktemp)"
+  while IFS= read -r line; do
+    case "${line}" in
+    '['*) checksum="" ;;
+    'checksum = '*) checksum=yes ;;
+    'url = '*)
+      if [[ -z "${checksum}" ]]; then
+        url="${line#url = \"}"
+        url="${url%\"}"
+        # Platforms that share one download follow each other.
+        if [[ "${url}" != "${hashed}" ]]; then
+          hash="$(curl -fsSL "${url}" | sha256)"
+          hashed="${url}"
+          echo "${url}: ${hash}" >&2
+        fi
+        echo "checksum = \"sha256:${hash}\""
+      fi
+      ;;
+    esac
+    printf '%s\n' "${line}"
+  done <mise.lock >"${out}"
+  # cat instead of mv keeps the file's mode.
+  cat "${out}" >mise.lock
+  rm "${out}"
+}
+
 pin .github/actions/setup/action.yaml LIBSECCOMP \
   "https://github.com/seccomp/libseccomp/releases/download/v{version}/libseccomp-{version}.tar.gz"
-pin hack/install-bats.sh BATS \
-  "https://github.com/bats-core/bats-core/archive/refs/tags/v{version}.tar.gz"
+lock_checksums
