@@ -313,8 +313,14 @@ dockers_v2:
       "org.opencontainers.image.licenses": "Apache-2.0"
       "org.opencontainers.image.base.name": "{{ .BaseImage }}"
       "org.opencontainers.image.base.digest": "{{ .BaseImageDigest }}"
+    # ghcr.io shows the description and links the repository from labels only, not from
+    # manifest annotations.
     labels:
+      "org.opencontainers.image.title": "podman"
+      "org.opencontainers.image.description": "Community-built static podman {{ .Tag }} on Alpine with its runtime helpers (upstream: github.com/podman-container-tools/podman)"
+      "org.opencontainers.image.version": "{{ .Version }}"
       "org.opencontainers.image.source": "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+      "org.opencontainers.image.licenses": "Apache-2.0"
     sbom: true
 
 docker_signs:
