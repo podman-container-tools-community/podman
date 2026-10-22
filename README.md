@@ -171,8 +171,8 @@ compiled from podman's source:
   from its release tarball, checked against a pinned SHA-256
   ([`.github/actions/setup`](.github/actions/setup/action.yaml),
   [`hack/build-libseccomp.sh`](hack/build-libseccomp.sh)). systemd's public headers,
-  needed by the `systemd` build tag, come from systemd's repository at a tag and are
-  checked against pinned SHA-256s as well; nothing of systemd is linked. The C
+  needed by the `systemd` build tag, come from systemd's repository at the release's
+  pinned commit (systemd publishes no tarballs); nothing of systemd is linked. The C
   compiler and musl libc are [zig](https://ziglang.org/), pinned to a version.
 - Builds run only in GitHub Actions. Binaries and checksums are signed keyless with
   [cosign](https://github.com/sigstore/cosign) via GitHub OIDC, images are signed the

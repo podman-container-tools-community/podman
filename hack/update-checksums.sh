@@ -72,30 +72,6 @@ lock_checksums() {
   rm "${out}"
 }
 
-# pin_systemd_headers: the SYSTEMD_HEADERS_SHA256 block in the setup action, one
-# sha256sum line per header, downloaded one by one from systemd's repository at
-# SYSTEMD_VERSION.
-pin_systemd_headers() {
-  local file=.github/actions/setup/action.yaml version header hash
-  version="$(sed -nE 's/^[[:space:]]*SYSTEMD_VERSION:[[:space:]]*([^[:space:]]+).*$/\1/p' "${file}")"
-  if [[ -z "${version}" ]]; then
-    echo "${file}: SYSTEMD_VERSION not found" >&2
-    exit 1
-  fi
-  for header in _sd-common.h sd-daemon.h sd-id128.h sd-journal.h; do
-    hash="$(curl -fsSL "https://raw.githubusercontent.com/systemd/systemd/v${version}/src/systemd/${header}" | sha256)"
-    sed -E "s/^([[:space:]]*)[0-9a-f]{64}(  ${header})$/\1${hash}\2/" "${file}" >"${file}.tmp"
-    cat "${file}.tmp" >"${file}"
-    rm "${file}.tmp"
-    if ! grep -q "${hash}  ${header}" "${file}"; then
-      echo "${file}: SYSTEMD_HEADERS_SHA256 line for ${header} not found" >&2
-      exit 1
-    fi
-    echo "systemd ${version} ${header}: ${hash}"
-  done
-}
-
 pin .github/actions/setup/action.yaml LIBSECCOMP \
   "https://github.com/seccomp/libseccomp/releases/download/v{version}/libseccomp-{version}.tar.gz"
-pin_systemd_headers
 lock_checksums

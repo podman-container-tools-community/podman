@@ -36,12 +36,11 @@
     },
     {
       "customType": "regex",
-      "description": "systemd release in the setup action; SYSTEMD_HEADERS_SHA256 follows via hack/update-checksums.sh",
+      "description": "systemd tag in the setup action, with the tag's commit as digest",
       "managerFilePatterns": ["/^\\.github/actions/setup/action\\.yaml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+SYSTEMD_VERSION: (?<currentValue>\\S+)"
-      ],
-      "extractVersionTemplate": "^v(?<version>.*)$"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+SYSTEMD_VERSION: (?<currentValue>\\S+)\\s+SYSTEMD_COMMIT: (?<currentDigest>[0-9a-f]{40})"
+      ]
     }
   ]
 }
