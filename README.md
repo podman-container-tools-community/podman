@@ -368,12 +368,14 @@ hack/generate-systemd.sh             systemd units for the packages, from upstre
 hack/functional-test.sh              runs test/functional.bats against the built binaries
 hack/image-test.sh                   builds the image from dist/, runs test/image.bats
 hack/install-bats.sh                 pinned bats-core release for the tests
+hack/update-checksums.sh             recompute the sha256 pins after a version bump
 test/                                bats tests and their helpers
 .github/actions/setup/               hide .build/ from Git, install Go, zig, libseccomp, syft, goreleaser
 .github/workflows/test.yaml          build one release, run functional tests
 .github/workflows/ci.yaml            pull requests: test.yaml for newest release per minor
 .github/workflows/sync.yaml          schedule and main: tag new releases, dispatch release.yaml
 .github/workflows/release.yaml       dispatch on a tag: test.yaml, then release, image, signing
+.github/workflows/renovate.yaml      Renovate pull requests: commit recomputed sha256 pins
 packaging/gpg.asc                    public GPG key for packages and the apt repository
 packaging/apt/podman.sources         apt source for the latest release
 renovate.json                        base image, action, libseccomp and bats updates
