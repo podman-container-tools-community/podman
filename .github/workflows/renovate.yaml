@@ -1,7 +1,8 @@
 name: renovate hooks
 
-# Renovate bumps versions, not the SHA-256 pinned next to them. On Renovate's pull
-# requests this runs hack/update-checksums.sh and, if a pin changed, commits the result
+# Renovate bumps the bats-core version, not the SHA-256 pinned next to it (libseccomp's
+# sha256 is a Renovate digest and bumps with its version). On Renovate's pull requests
+# this runs hack/update-checksums.sh and, if a pin changed, commits the result
 # to the pull request branch with the automation GitHub App. Commits made with
 # GITHUB_TOKEN would not trigger the pull request's checks again.
 
@@ -9,7 +10,6 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - .github/actions/setup/action.yaml
       - hack/install-bats.sh
 
 permissions: {}

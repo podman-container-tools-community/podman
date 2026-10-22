@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Recomputes the SHA-256 pinned next to each version Renovate bumps:
+# Recomputes the SHA-256 pinned next to each version Renovate bumps without a digest of
+# its own, which is bats-core, whose releases publish no checksums:
 #   hack/update-checksums.sh
 # Runs on Renovate pull requests via .github/workflows/renovate.yaml, and locally.
 # Needs curl and shasum or sha256sum.
@@ -39,7 +40,5 @@ pin() {
   echo "${name} ${version}: ${hash}"
 }
 
-pin .github/actions/setup/action.yaml LIBSECCOMP \
-  "https://github.com/seccomp/libseccomp/releases/download/v{version}/libseccomp-{version}.tar.gz"
 pin hack/install-bats.sh BATS \
   "https://github.com/bats-core/bats-core/archive/refs/tags/v{version}.tar.gz"

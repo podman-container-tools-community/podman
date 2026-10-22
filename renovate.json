@@ -27,12 +27,11 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "libseccomp release in the setup action; LIBSECCOMP_SHA256 follows via hack/update-checksums.sh",
+      "description": "libseccomp release in the setup action, with the sha256 of its tarball as digest",
       "managerFilePatterns": ["/^\\.github/actions/setup/action\\.yaml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+LIBSECCOMP_VERSION: (?<currentValue>\\S+)"
-      ],
-      "extractVersionTemplate": "^v(?<version>.*)$"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+LIBSECCOMP_VERSION: (?<currentValue>\\S+)\\s+LIBSECCOMP_SHA256: (?<currentDigest>[0-9a-f]{64})"
+      ]
     },
     {
       "customType": "regex",
