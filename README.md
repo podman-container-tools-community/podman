@@ -1,4 +1,14 @@
+[![CI](https://github.com/podman-container-tools-community/podman/actions/workflows/ci.yaml/badge.svg)](https://github.com/podman-container-tools-community/podman/actions/workflows/ci.yaml)
+[![Release](https://github.com/podman-container-tools-community/podman/actions/workflows/release.yaml/badge.svg)](https://github.com/podman-container-tools-community/podman/actions/workflows/release.yaml)
+[![GitHub license](https://img.shields.io/github/license/podman-container-tools-community/podman)](https://github.com/podman-container-tools-community/podman/blob/main/LICENSE)
+[![Current Release](https://img.shields.io/github/release/podman-container-tools-community/podman.svg?logo=github)](https://github.com/podman-container-tools-community/podman/releases/latest)
+[![GitHub Repo stars](https://img.shields.io/github/stars/podman-container-tools-community/podman?style=flat&logo=github)](https://github.com/podman-container-tools-community/podman/stargazers)
+[![GitHub all releases](https://img.shields.io/github/downloads/podman-container-tools-community/podman/total?logo=github)](https://github.com/podman-container-tools-community/podman/releases/latest)
+[![ghcr.io Pulls](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fipitio.github.io%2Fbackage%2Fpodman-container-tools-community%2Fpodman%2Fpodman.json&query=%24.downloads&logo=github&label=ghcr.io%20pulls)](https://github.com/podman-container-tools-community/podman/pkgs/container/podman)
+
 # podman (community build)
+
+⭐ Don't forget to star this repository! ⭐
 
 Community-maintained, static binaries and packages of
 [podman](https://github.com/podman-container-tools/podman), part of
