@@ -304,7 +304,8 @@ dockers_v2:
       - .build/packaging/image/storage-rootless.conf
       - .build/packaging/image/podman-containers.conf
     build_args:
-      # Podman 6 needs netavark 2, which Alpine has only in edge so far.
+      # Podman 6 needs netavark 2 and containers-common 0.68 (container-libs), which
+      # Alpine has only in edge so far.
       NETAVARK_FROM_EDGE: '{{ if ge .Major 6 }}true{{ end }}'
     platforms:
       - linux/amd64

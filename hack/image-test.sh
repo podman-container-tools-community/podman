@@ -27,7 +27,8 @@ for arch in amd64 arm64; do
   platforms+=("linux/${arch}")
 done
 
-# As goreleaser does (build_args in .goreleaser.yaml): netavark 2 from edge for Podman 6.
+# As goreleaser does (build_args in .goreleaser.yaml): netavark 2 and container-libs from
+# edge for Podman 6.
 version="$(jq -r .version "${dist}/metadata.json")"
 edge=""
 if ((${version%%.*} >= 6)); then

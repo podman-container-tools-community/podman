@@ -105,7 +105,8 @@ docker run --rm --user podman --device /dev/fuse \
 
 conmon, crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs, `bash`, `git`
 and the configuration in `/etc/containers` come from Alpine; for Podman 6, which needs
-netavark 2, netavark and aardvark-dns come from Alpine's edge repository. As upstream:
+netavark 2 and the configuration files of containers-common 0.68, netavark,
+aardvark-dns and container-libs come from Alpine's edge repository. As upstream:
 
 - containers share the outer container's namespaces
   ([`packaging/image/containers.conf`](packaging/image/containers.conf)), and rootless
