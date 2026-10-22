@@ -181,7 +181,12 @@ archives:
 # Replace the distribution's podman package. Epoch 6 sorts above every distribution
 # version (Fedora uses epoch 5, Debian none), so upgrades do not switch back.
 # The runtime helpers (conmon, crun, netavark, aardvark-dns, passt) and the
-# configuration in /etc/containers come from the distribution.
+# configuration in /etc/containers come from the distribution. Podman 6 needs netavark
+# and aardvark-dns 2.0 and the configuration of containers-common 0.68; goreleaser does
+# not template dependencies, so for 6.x the setup action replaces the lines marked
+# "# podman6:" with the versioned requirement after the marker. The rpm versions carry
+# the Fedora epochs (containers-common 5, netavark and aardvark-dns 2); without them
+# the comparison is against epoch 0 and matches any version.
 nfpms:
   - id: podman
     ids: [podman, podman-remote]
@@ -257,11 +262,11 @@ nfpms:
         dependencies:
           - conmon
           - crun | runc
-          - netavark
+          - netavark # podman6: netavark (>= 2.0.0)
           - passt
-          - golang-github-containers-common | containers-common
+          - golang-github-containers-common | containers-common # podman6: golang-github-containers-common (>= 0.68) | containers-common (>= 0.68)
         recommends:
-          - aardvark-dns
+          - aardvark-dns # podman6: aardvark-dns (>= 2.0.0)
           - catatonit | tini | dumb-init
           - uidmap
           - fuse-overlayfs
@@ -274,11 +279,11 @@ nfpms:
         dependencies:
           - conmon
           - (crun or runc)
-          - netavark
+          - netavark # podman6: netavark >= 2:2.0.0
           - passt
-          - containers-common
+          - containers-common # podman6: containers-common >= 5:0.68.0
         recommends:
-          - aardvark-dns
+          - aardvark-dns # podman6: aardvark-dns >= 2:2.0.0
           - catatonit
           - shadow-utils-subid
           - fuse-overlayfs

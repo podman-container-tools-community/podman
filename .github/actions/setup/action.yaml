@@ -106,6 +106,22 @@ runs:
         fi
         echo "GORELEASER_CONFIG=${config}" >> "$GITHUB_ENV"
 
+    # Podman 6 needs netavark/aardvark-dns 2.0 and containers-common 0.68 (see
+    # .goreleaser.yaml, nfpms): the "# podman6:" markers become the versioned dependency.
+    - name: Version the package dependencies for Podman 6
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: | # zizmor: ignore[github-env] only a fixed path goes into GITHUB_ENV
+        major="${VERSION#v}"
+        if ((${major%%.*} >= 6)); then
+          config="${RUNNER_TEMP}/goreleaser.yaml"
+          sed -E 's/^(\s*- ).*# podman6: (.*)$/\1\2/' "${GORELEASER_CONFIG}" > "${config}.new"
+          mv "${config}.new" "${config}"
+          grep -q 'netavark (>= 2.0.0)' "${config}"
+          echo "GORELEASER_CONFIG=${config}" >> "$GITHUB_ENV"
+        fi
+
     - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
 
     - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
