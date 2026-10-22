@@ -214,7 +214,10 @@ they cannot be built verifiably.
      that release. Without such a tag it uses Fedora 43 for Podman 5 and Fedora rawhide
      for newer releases. It tests as root and rootless: run, seccomp, bridge network with
      DNS, published ports, pods, `podman build`, quadlet and `podman-remote` against the
-     API service.
+     API service. [`test/signing.bats`](test/signing.bats) follows in the same container
+     and pushes to a `registry:3` container next to it: signing with a sigstore key,
+     verifying sigstore and GPG (simple signing) signatures through a `policy.json`, and
+     `--sign-by` failing with a clear error.
    - [`hack/image-test.sh`](hack/image-test.sh) builds the image for both architectures
      and runs [`test/image.bats`](test/image.bats) against the amd64 one as root and
      rootless, with and without `--privileged`: run, bridge network with DNS, a published
@@ -385,7 +388,7 @@ packaging/image/                     containers.conf drop-ins and storage.conf f
 hack/upstream-releases.sh            upstream releases to build
 hack/build-libseccomp.sh             static musl libseccomp per architecture, with zig
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
-hack/functional-test.sh              runs test/functional.bats against the built binaries
+hack/functional-test.sh              runs test/functional.bats and test/signing.bats against the built binaries
 hack/image-test.sh                   builds the image from dist/, runs test/image.bats
 test/                                bats tests and their helpers
 .github/actions/setup/               hide .build/ from Git, install Go, zig, libseccomp, syft, goreleaser
