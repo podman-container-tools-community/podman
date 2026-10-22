@@ -1,7 +1,8 @@
 name: renovate hooks
 
-# Renovate bumps versions, not the SHA-256 pinned next to them. On Renovate's pull
-# requests this runs hack/update-checksums.sh and, if a pin changed, commits the result
+# Renovate bumps versions, not the SHA-256 pinned next to them, and mise lock records no
+# checksum for bats-core, whose releases publish none. On Renovate's pull requests this
+# runs hack/update-checksums.sh and, if a pin or mise.lock changed, commits the result
 # to the pull request branch with the automation GitHub App. Commits made with
 # GITHUB_TOKEN would not trigger the pull request's checks again.
 
@@ -10,7 +11,8 @@ on:
     branches: [main]
     paths:
       - .github/actions/setup/action.yaml
-      - hack/install-bats.sh
+      - mise.toml
+      - mise.lock
 
 permissions: {}
 
@@ -33,8 +35,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          install: false
+          cache: false
+
       - name: Update checksums
         id: update
+        env:
+          # mise lock looks up releases through the GitHub API.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           hack/update-checksums.sh
           if git diff --quiet; then
