@@ -12,7 +12,7 @@
 # podman is linked with zig as C compiler, so both architectures build on one runner.
 # GPG_KEY_PATH names the GPG private key that signs the deb and rpm packages; unset
 # means unsigned.
-# IS_LATEST=true marks upstream's latest release, IS_LATEST_MINOR=true the newest
+# IS_LATEST=true marks the newest upstream release, IS_LATEST_MINOR=true the newest
 # release of its minor version; they decide which floating image tags move.
 version: 2
 

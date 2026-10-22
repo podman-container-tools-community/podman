@@ -32,7 +32,7 @@ Ubuntu).
 
 ### apt (Debian, Ubuntu)
 
-The apt repository follows upstream's latest release. It needs apt 2.3.10 or newer
+The apt repository follows the newest upstream release. It needs apt 2.3.10 or newer
 (Debian 12, Ubuntu 22.04 and later) for the inline key in the sources file:
 
 ```sh
@@ -184,7 +184,8 @@ they cannot be built verifiably.
    on it. It only runs once the repository variable `RELEASES_ENABLED` is `true`.
 2. `release.yaml` builds that tag: GitHub release, packages, apt repository, image on
    `ghcr.io`, signatures and attestations. Image tags: `vX.Y.Z` always, `vX.Y` for the
-   newest release of a minor, `vX` and `latest` for upstream's latest release.
+   newest release of a minor, `vX` and `latest` for the newest upstream release by
+   version (not upstream's GitHub "latest" flag, which a backport release can take).
 3. Before anything is published, [`test.yaml`](.github/workflows/test.yaml) builds the
    release and runs the [bats](https://github.com/bats-core/bats-core) tests in
    [`test/`](test), with a pinned bats release
