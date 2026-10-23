@@ -66,6 +66,10 @@ mise.toml, mise.lock                 zig, goreleaser, syft, cosign and bats, ins
   work. A release whose `go.mod` has `replace` directives is built from the checkout
   instead (`proxy: false`, picked by the setup action), because the module proxy
   ignores them.
+- Before goreleaser runs, the setup action downloads the modules with `go mod download`
+  and retries it up to five times, because proxy.golang.org sometimes cuts a download off
+  and neither go build nor goreleaser (which retries only its `go get`, on a 404) retries
+  that. goreleaser then finds the modules in the module cache.
 - **`podman` needs cgo.** Without it, podman builds but cannot work as an engine:
   rootless mode re-execs into a user namespace from a C constructor (`pkg/rootless`),
   the state database is SQLite through `mattn/go-sqlite3` (BoltDB was removed in 6.0),
