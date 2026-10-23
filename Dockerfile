@@ -41,13 +41,10 @@ fi
 # shadow-subids: newuidmap and newgidmap (file capabilities) for rootless.
 # fuse-overlayfs: rootless overlay where the kernel's is not allowed.
 # shellcheck disable=SC2086 # netavark holds three package names
-# bash and git as in upstream's image: bash is the default command and the podman
-# user's shell, git serves podman build from Git URLs.
+# git as in upstream's image: it serves podman build from Git URLs.
 apk --root /rootfs --arch "${arch}" --no-cache --no-scripts add \
   conmon crun ${netavark} passt catatonit fuse-overlayfs shadow-subids \
-  iptables nftables tzdata bash git
-# bash's own script would add it to /etc/shells.
-echo /bin/bash >> /rootfs/etc/shells
+  iptables nftables tzdata git
 
 # Ubuntu's AppArmor profiles for passt and pasta attach by path to
 # /usr/bin/{passt,pasta}{,.avx2} and are written for the host's binaries: 24.04's passt
@@ -61,7 +58,7 @@ fi
 
 # Unprivileged user for rootless podman, with subordinate ID ranges around its own ID
 # as in upstream's image, and its own storage volume.
-echo 'podman:x:1000:1000:podman:/home/podman:/bin/bash' >> /rootfs/etc/passwd
+echo 'podman:x:1000:1000:podman:/home/podman:/bin/sh' >> /rootfs/etc/passwd
 echo 'podman:x:1000:' >> /rootfs/etc/group
 echo 'podman:!::0:::::' >> /rootfs/etc/shadow
 printf 'podman:1:999\npodman:1001:64535\n' > /rootfs/etc/subuid
@@ -103,4 +100,4 @@ VOLUME ["/var/lib/containers", "/var/tmp", "/home/podman/.local/share/containers
 # As in upstream's image: container=oci tells podman it runs in a container (no warning
 # about / not being a shared mount), and builds use chroot isolation.
 ENV container=oci BUILDAH_ISOLATION=chroot
-CMD ["/bin/bash"]
+CMD ["/bin/sh"]

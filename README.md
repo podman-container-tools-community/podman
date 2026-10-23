@@ -99,8 +99,8 @@ shell completions.
 
 `ghcr.io/podman-container-tools-community/podman` carries the same static release
 binaries (`podman`, `podman-remote`, `quadlet` and `rootlessport`) on Alpine 3.24, set up
-like upstream's `quay.io/podman/stable` and used the same way: no entrypoint, `bash` as
-the default command, `root` or the rootless `podman` user (UID 1000).
+like upstream's `quay.io/podman/stable` and used the same way: no entrypoint, BusyBox `sh`
+(no `bash`) as the default command, `root` or the rootless `podman` user (UID 1000).
 
 ```sh
 docker run --rm --privileged ghcr.io/podman-container-tools-community/podman:latest \
@@ -115,7 +115,7 @@ docker run --rm --user podman --device /dev/fuse \
   podman run --rm quay.io/libpod/alpine:latest echo hello
 ```
 
-conmon, crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs, `bash`, `git`
+conmon, crun, netavark, aardvark-dns, passt, catatonit, fuse-overlayfs, `git`
 and the configuration in `/etc/containers` come from Alpine; for Podman 6, which needs
 netavark 2 and the configuration files of containers-common 0.68, netavark,
 aardvark-dns and container-libs come from Alpine's edge repository. As upstream:
