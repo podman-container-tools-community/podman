@@ -304,6 +304,11 @@ Compared to a distribution package, the static `podman` has:
   and catatonit (for pods' infra containers) are separate programs, partly in C and
   Rust, and are not part of this build. Older distributions may ship versions that are
   too old for current podman.
+- **The apt repository serves only the newest release.** Its sources point at
+  `releases/latest/download`, so once a new upstream release is published, the `.deb`
+  URLs in a cached index return 404 until `sudo apt update` runs (see
+  [apt](#apt-debian-ubuntu)). This is by design; there is no package pool with older
+  releases.
 - **Linux only**, `amd64` and `arm64`. No `podman machine` (macOS, Windows).
 
 ## Reproduce locally
