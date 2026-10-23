@@ -1,0 +1,232 @@
+# AGENTS.md
+
+Notes for maintainers and coding agents working on this repository.
+[`README.md`](README.md) is for users: install, image, verification and limitations.
+This file covers how the build works, how to test changes and the rules for changing
+the repository.
+
+## What this repository is
+
+- Build configuration only, for community builds of upstream
+  [podman](https://github.com/podman-container-tools/podman). Upstream source is never
+  vendored, patched or copied in; it comes from the Go module proxy at the upstream tag
+  (see "Trust model" in the README). A change that would alter what gets compiled does
+  not belong here.
+- One of three sibling repositories built the same way:
+  [skopeo](https://github.com/podman-container-tools-community/skopeo),
+  [buildah](https://github.com/podman-container-tools-community/buildah) and
+  [podman](https://github.com/podman-container-tools-community/podman). The org's
+  [`.github`](https://github.com/podman-container-tools-community/.github) repository
+  holds the shared community health files (issue templates, contributing guide,
+  security policy).
+
+## Layout
+
+The workflows check this repository out to `.build/` inside an upstream checkout.
+
+```
+.goreleaser.yaml                     build, archive, package and signing configuration
+Dockerfile                           image on Alpine with the runtime helpers; packages cross-installed with apk, no emulation
+hack/upstream-releases.sh            upstream releases to build
+hack/build-sysroot.sh                static musl libseccomp for both architectures, systemd headers
+hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
+hack/build-image.sh                  builds, pushes and signs the image from built or released binaries
+hack/functional-test.sh              runs test/functional.bats and test/signing.bats against the built binaries
+hack/image-test.sh                   builds the image from a dist directory, runs test/image.bats
+test/                                bats tests for the binaries and the image; test/sigstore/ is a test-only key pair
+.github/actions/setup/               hide .build/ from Git, install Go and the mise tools, build the sysroot
+.github/workflows/test.yaml          build one release, run functional and image tests
+.github/workflows/ci.yaml            pull requests: test.yaml for newest release per minor
+.github/workflows/lint.yaml          pull requests: super-linter
+.github/workflows/sync.yaml          schedule and main: tag new releases, dispatch release.yaml
+.github/workflows/release.yaml       dispatch on a tag: test.yaml, then release, images, signing
+.github/workflows/rebuild.yaml       weekly and on image changes: rebuild images from released binaries
+.github/linters/                     actionlint, zizmor, codespell and gitleaks configuration for super-linter
+packaging/gpg.asc                    public GPG key for packages and the apt repository
+packaging/apt/podman.sources         apt source for the latest release
+packaging/image/                     containers.conf drop-ins and storage.conf for the image
+packaging/package/                   containers.conf drop-in installed by the packages
+renovate.json                        base image, action, mise tool, libseccomp and systemd updates
+mise.toml, mise.lock                 zig, goreleaser, syft, cosign and bats, installed with mise
+```
+
+## How the build works
+
+- The workflows check out upstream podman at the release tag into the workspace root and
+  this repository into `.build/`. [`.github/actions/setup`](.github/actions/setup/action.yaml)
+  hides `.build/` from Git (`.git/info/exclude`), so goreleaser sees a clean upstream
+  checkout and takes module path, `go.sum`, tag, completions and systemd units
+  ([`hack/generate-systemd.sh`](hack/generate-systemd.sh)) from it. The goreleaser
+  configuration is used from `.build/`.
+- goreleaser's `gomod.proxy` then compiles `<module>/cmd/podman@<tag>` from the Go module
+  proxy, verified against sum.golang.org, rather than from the checkout. The module path
+  changed from `github.com/containers/podman/v5` to `go.podman.io/podman/v6` in 6.0; both
+  work. A release whose `go.mod` has `replace` directives is built from the checkout
+  instead (`proxy: false`, picked by the setup action), because the module proxy
+  ignores them.
+- **`podman` needs cgo.** Without it, podman builds but cannot work as an engine:
+  rootless mode re-execs into a user namespace from a C constructor (`pkg/rootless`),
+  the state database is SQLite through `mattn/go-sqlite3` (BoltDB was removed in 6.0),
+  and seccomp filters come from libseccomp. So `podman` is built with `CGO_ENABLED=1`,
+  zig as C compiler targeting musl (`zig cc -target <arch>-linux-musl`), a static
+  libseccomp built the same way by [`hack/build-sysroot.sh`](hack/build-sysroot.sh), and
+  `-extldflags '-static -s'`. SQLite is the copy bundled with go-sqlite3. zig
+  cross-compiles, so both architectures are built by one goreleaser run on an amd64
+  runner.
+- Per-architecture build settings (`CC`, `PKG_CONFIG_LIBDIR=$SYSROOT/<arch>/lib/pkgconfig`)
+  are templated `env` entries in `.goreleaser.yaml`
+  (`{{- if and (eq .Os "linux") (eq .Arch "amd64") }}...`), not `overrides`.
+- `podman-remote`, `quadlet` and `rootlessport` need no C code and are built with
+  `CGO_ENABLED=0`, like upstream's `podman-remote-static`.
+- Build tags for `podman`: `seccomp systemd apparmor grpcnotrace containers_image_openpgp
+  exclude_graphdriver_btrfs exclude_graphdriver_devicemapper btrfs_noversion` (the last
+  two matter for older releases only). The `apparmor` support is pure Go and calls `apparmor_parser`.
+  For `systemd`, go-systemd's journal reader needs systemd's public headers at build time
+  (from `hack/build-sysroot.sh`) and loads libsystemd with `dlopen` at run time, which a
+  static binary cannot; the packages therefore install
+  [`packaging/package/50-podman-community.conf`](packaging/package/50-podman-community.conf),
+  which keeps logs and events in files.
+- Every release is built with the newest stable Go, not the version in upstream's
+  `go.mod` (only a minimum), with `GOTOOLCHAIN=local`. Exceptions for releases whose
+  pinned dependencies break with the newest Go go into the `setup-go` step of
+  [`.github/actions/setup`](.github/actions/setup/action.yaml); there are none so far.
+- Commit, build time (the commit's timestamp) and build origin
+  (`podman-container-tools-community`) are set at link time, as upstream's Makefile
+  does, and show in `podman version`.
+- `-s` in the linker flags strips the binaries. That also strips the build paths of the
+  libseccomp objects, which is what keeps builds bit-for-bit reproducible, also against
+  a cached sysroot; do not remove it.
+- The image is built by [`hack/build-image.sh`](hack/build-image.sh) from the binaries
+  goreleaser built (or, for rebuilds, the released archives) and `packaging/image/`,
+  with Docker buildx for both architectures, then signed with cosign. The same script
+  builds the image for the tests, so the image build is exercised on every pull request.
+- The release is signed keyless with cosign through GitHub OIDC: the checksum file
+  (`checksums.txt.sigstore.json`) and the image. A GitHub build provenance attestation
+  is created for every file in `checksums.txt`. The apt repository and rpm packages are
+  also signed with the GPG key from the repository secrets.
+
+## Build and test locally
+
+Tools come from [mise](https://mise.jdx.dev): `mise install` reads
+[`mise.toml`](mise.toml) and [`mise.lock`](mise.lock), which pin zig, goreleaser, syft,
+cosign and bats with their download checksums. Go is not in mise, because its version
+depends on the release being built. Run the `hack/` scripts with mise activated or
+through `mise exec --`.
+
+Build a release as described in "Reproduce locally" in the README. Then, from the
+upstream checkout:
+
+```sh
+mise exec -C .build -- .build/hack/functional-test.sh dist
+mise exec -C .build -- .build/hack/image-test.sh dist
+```
+
+`functional-test.sh` needs Docker and network access to quay.io: it runs the tests in a
+privileged container and starts its own `registry:3` container on a private Docker
+network, and removes only what it created. `image-test.sh` needs Docker with buildx.
+On Ubuntu 24.04 and newer, rootless tests need
+`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
+
+[`lint.yaml`](.github/workflows/lint.yaml) runs super-linter on pull requests:
+shellcheck, shfmt, hadolint, actionlint, zizmor, gitleaks, codespell, textlint,
+EditorConfig, JSON, Renovate config and `goreleaser check`. Shell scripts use two-space
+indentation ([`.editorconfig`](.editorconfig)) and `set -euo pipefail`.
+
+## Tests
+
+[`test.yaml`](.github/workflows/test.yaml) builds one release without publishing and
+runs the [bats-core](https://github.com/bats-core/bats-core) suites, each case reported
+in TAP:
+
+- [`hack/functional-test.sh`](hack/functional-test.sh) runs
+  [`test/functional.bats`](test/functional.bats) against the amd64 binaries in a
+  privileged container of upstream's `quay.io/podman/stable` image of the same version,
+  minor or major, whose conmon, crun, netavark, aardvark-dns and passt match that
+  release. Without such a tag it uses Fedora 43 for Podman 5 and Fedora rawhide for
+  newer releases. It tests as root and rootless: run, seccomp, bridge network with DNS,
+  published ports, pods, `podman build`, quadlet and `podman-remote` against the API
+  service. The host's bats from mise is mounted into the container.
+- [`test/signing.bats`](test/signing.bats) follows in the same container and pushes to
+  a `registry:3` container next to it: signing with the test key in
+  [`test/sigstore/`](test/sigstore), verifying sigstore and GPG (simple signing)
+  signatures through a `policy.json`, and `--sign-by` failing with a clear error.
+- [`hack/image-test.sh`](hack/image-test.sh) builds the image for both architectures and
+  runs [`test/image.bats`](test/image.bats) against the amd64 one as root and rootless,
+  with and without `--privileged`: run, bridge network with DNS, a published port and
+  `podman build`.
+
+Conventions:
+
+- One `@test` per check. [`test/helpers.bash`](test/helpers.bash) has `expect_output`;
+  there is no bats-assert.
+- Use `run --separate-stderr` when the output is parsed (jq, `expect_output`):
+  containers/storage logs warnings to stderr on some kernels.
+- The images have BusyBox `sh` only, no bash: commands inside the image run with
+  `sh -c`.
+- Tests run on amd64 only, inside the single `build` job of `test.yaml`. arm64 is built
+  and checked to be static, but not tested; do not add arm64 or separate test jobs. New
+  tests go into the existing suites or that job.
+- Upstream's own system and end-to-end tests are not run: they expect upstream's test
+  VM setup and a matching podman-testing binary.
+
+## CI and release workflows
+
+- [`ci.yaml`](.github/workflows/ci.yaml) runs `test.yaml` on pull requests for the
+  newest release of every minor version. Its `fail` job is the single required check: it
+  is skipped when everything passed (which counts as passed) and fails when a job failed
+  or was cancelled. Keep it that way; do not make it run always.
+- [`sync.yaml`](.github/workflows/sync.yaml) runs every 6 hours, on every push to `main`
+  and on demand. For every upstream release (from
+  [`hack/upstream-releases.sh`](hack/upstream-releases.sh), `v5.3.0` and newer) that has
+  no tag here yet, it creates the tag on the current commit and dispatches
+  [`release.yaml`](.github/workflows/release.yaml) on it, newest first, at most
+  `MAX_RELEASES_PER_RUN` per run (repository variable, default 10).
+- `release.yaml` runs `test.yaml` first, then publishes: GitHub release, packages, apt
+  repository, images on `ghcr.io`, signatures and attestations. Image tags: `vX.Y.Z` and
+  `vX.Y.Z-immutable` always, `vX.Y` for the newest release of a minor, `vX` and `latest`
+  for the newest upstream release by version. `vX.Y.Z-immutable` is pushed only by the
+  release itself and never moves; a retried run keeps the first run's tag.
+- [`rebuild.yaml`](.github/workflows/rebuild.yaml) rebuilds images without a new release:
+  weekly for the newest release of every minor, after a merge to `main` that changes the
+  `Dockerfile`, `packaging/image` or `hack/build-image.sh`, and on demand. It downloads
+  the release archives, checks them against the cosign-signed `checksums.txt`, builds
+  with the current `Dockerfile`, runs `test/image.bats` and only then pushes and signs
+  every tag of that release except `vX.Y.Z-immutable`. No toolchain is involved.
+- `sync.yaml` and `rebuild.yaml` do nothing until the repository variable
+  `RELEASES_ENABLED` is `true`, so pull requests can be merged without creating tags or
+  releases. Setting that variable and starting releases by hand is the maintainer's
+  call:
+
+  ```sh
+  gh workflow run release.yaml --ref v6.1.4
+  gh workflow run rebuild.yaml -f version=v6.1.4   # or -f all=true
+  ```
+
+- GitHub's releases API sometimes answers with empty or truncated pages.
+  `hack/upstream-releases.sh` retries and accepts the list only if it contains upstream's
+  latest release and reaches back to `MIN_VERSION`; keep that check. The symptom of a
+  bad list is "Matrix vector 'version' does not contain any values".
+
+## Rules
+
+- Work through pull requests; never push to `main`. Sign off every commit
+  (`git commit -s`) for the DCO.
+- Keep skopeo, buildah and podman equal: same file names, workflow and step structure,
+  script interfaces and wording, differing only where the tool needs it. A change to
+  one repository is ported to the other two, one pull request per repository. Each
+  repository stays self-contained: no reusable workflows, composite actions or
+  templates shared across repositories.
+- Never use a cache in a release. Only `ci.yaml` passes `cache: true` to `test.yaml`
+  (the C sysroot in the Actions cache); `release.yaml`, `rebuild.yaml` and any new
+  workflow that publishes build everything from source, against cache poisoning.
+- Pin everything. Actions by commit SHA with a version comment, tools in `mise.lock`,
+  C dependencies in `hack/build-sysroot.sh` with a
+  `# renovate: datasource=<datasource> depName=<name>` comment above the version line
+  (and its sha256 or commit on the line after). Renovate runs on Fridays (Europe/Berlin)
+  with a 7-day minimum release age and automerges everything but major updates.
+- Runners are `ubuntu-26.04`. zig is pinned in `mise.toml`; the Go version comes from
+  the setup action, and an exception there needs a comment with the error it avoids.
+- The image is Alpine with BusyBox `sh`; do not add bash. The binary has no GPG
+  signing (verification works), no libsubid and no NSS; these are accepted limitations
+  of a static musl build and documented in the README.
+- Keep README.md user-facing. Build internals, tests, workflows and rules belong here.
