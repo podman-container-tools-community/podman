@@ -210,6 +210,10 @@ minor, `vX` and `latest` for the newest upstream release by version (not upstrea
 GitHub "latest" flag, which a backport release of an older minor can take).
 `vX.Y.Z-immutable` is pushed once by the release and never moves.
 
+Releases are built by the pipeline on `main`; the release notes name the pipeline
+commit. The release's Git tag in this repository only anchors the GitHub release (it
+points at the repository's first commit) and never moves.
+
 Images are rebuilt without a new release when the Alpine base image or its packages
 change: weekly for the newest release of every minor, and after changes to the image
 definition. A rebuild takes the released archives, checks them against the
@@ -222,11 +226,12 @@ release except `vX.Y.Z-immutable`, which keeps the digest of the original releas
 Download the binary (or archive, or package), `checksums.txt` and
 `checksums.txt.sigstore.json` from the release. The examples use podman `v6.1.4`.
 
-1. **Signature of the checksums**, proving the file came from this repository's workflow:
+1. **Signature of the checksums**, proving the file came from this repository's release
+   workflow on `main`:
 
    ```sh
    cosign verify-blob \
-     --certificate-identity-regexp '^https://github.com/podman-container-tools-community/podman/\.github/workflows/release\.yaml@' \
+     --certificate-identity https://github.com/podman-container-tools-community/podman/.github/workflows/release.yaml@refs/heads/main \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
      --bundle checksums.txt.sigstore.json \
      checksums.txt
@@ -257,9 +262,11 @@ Download the binary (or archive, or package), `checksums.txt` and
 
 ### Verify an image
 
+Every image, released or rebuilt, is signed by the `images.yaml` workflow on `main`:
+
 ```sh
 cosign verify ghcr.io/podman-container-tools-community/podman:v6.1.4 \
-  --certificate-identity-regexp '^https://github.com/podman-container-tools-community/podman/\.github/workflows/release\.yaml@' \
+  --certificate-identity https://github.com/podman-container-tools-community/podman/.github/workflows/images.yaml@refs/heads/main \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
