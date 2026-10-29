@@ -94,6 +94,8 @@ COPY packaging/image/storage.conf /etc/containers/storage.conf
 COPY --chown=1000:1000 packaging/image/storage-rootless.conf /home/podman/.config/containers/storage.conf
 COPY $TARGETPLATFORM/podman $TARGETPLATFORM/podman-remote /usr/bin/
 COPY $TARGETPLATFORM/quadlet $TARGETPLATFORM/rootlessport /usr/libexec/podman/
+# The C libraries in podman, for the image SBOM (hack/generate-sbom.sh)
+COPY sbom/$TARGETPLATFORM/ /usr/share/sbom/podman/
 # Container storage and the overlays podman build mounts over the build context (in
 # /var/tmp) need a file system that is not the image's overlay.
 VOLUME ["/var/lib/containers", "/var/tmp", "/home/podman/.local/share/containers"]
