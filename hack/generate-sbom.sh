@@ -69,8 +69,11 @@ printf '%s\n' "${components[@]}" | jq -R -s \
         filesAnalyzed: false,
         licenseDeclared: .license,
         externalRefs: [
-          {referenceCategory: "SECURITY", referenceType: "cpe23Type",
-           referenceLocator: "cpe:2.3:a:\(.cpe):\(.version):*:*:*:*:*:*:*"},
+          {
+            referenceCategory: "SECURITY",
+            referenceType: "cpe23Type",
+            referenceLocator: "cpe:2.3:a:\(.cpe):\(.version):*:*:*:*:*:*:*"
+          },
           {referenceCategory: "PACKAGE-MANAGER", referenceType: "purl", referenceLocator: .purl}
         ]
       }]
