@@ -31,6 +31,7 @@ Dockerfile                           image on Alpine with the runtime helpers; p
 hack/upstream-releases.sh            upstream releases to build
 hack/build-sysroot.sh                static musl libseccomp for both architectures, systemd headers
 hack/generate-systemd.sh             systemd units for the packages, from upstream's contrib/
+hack/generate-sbom.sh                SPDX file for the C libraries in podman, merged into the archive and image SBOMs
 hack/build-image.sh                  builds, pushes and signs the image from built or released binaries
 hack/functional-test.sh              runs test/functional.bats and test/signing.bats against the built binaries
 hack/image-test.sh                   builds the image from a dist directory, runs test/image.bats
@@ -110,6 +111,16 @@ mise.toml, mise.lock                 zig, goreleaser, syft, cosign and bats, ins
   (`checksums.txt.sigstore.json`) and the image. A GitHub build provenance attestation
   is created for every file in `checksums.txt`. The apt repository and rpm packages are
   also signed with the GPG key from the repository secrets.
+- SBOMs: goreleaser runs syft on every archive (`<archive>.sbom.json`), and
+  `hack/build-image.sh` builds the image with `--sbom=true` (BuildKit's syft scanner).
+  syft sees the Go modules but not the C code linked into `podman`, so
+  [`hack/generate-sbom.sh`](hack/generate-sbom.sh) (a goreleaser before hook) writes
+  `static-libraries.spdx.json` with musl (from zig), libseccomp (from the sysroot) and
+  SQLite (bundled by go-sqlite3), reading each version from what the build uses. It goes
+  into the archive and into the image under `/usr/share/sbom/podman/`; syft's
+  sbom-cataloger merges it into both SBOMs (goreleaser needs `+sbom-cataloger`, BuildKit's
+  scanner enables it by default). Archives of earlier releases have none, so their
+  rebuilt images have none either.
 
 ## Build and test locally
 

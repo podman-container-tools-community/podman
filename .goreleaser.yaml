@@ -27,6 +27,7 @@ gomod:
 before:
   hooks:
     - .build/hack/generate-systemd.sh .build/generated/systemd
+    - .build/hack/generate-sbom.sh .build/generated/static-libraries.spdx.json
 
 builds:
   # podman needs cgo: rootless mode re-execs itself into a user namespace from a C
@@ -173,6 +174,9 @@ archives:
       - src: .build/generated/systemd/user/*
         dst: systemd/user
         strip_parent: true
+      # C libraries in podman, for the SBOMs (hack/generate-sbom.sh)
+      - src: .build/generated/static-libraries.spdx.json
+        strip_parent: true
   - id: binary
     ids: [podman, podman-remote]
     formats: [binary]
@@ -295,8 +299,11 @@ nfpms:
 checksum:
   name_template: checksums.txt
 
+# goreleaser's default syft arguments plus the sbom-cataloger, which merges the
+# archive's static-libraries.spdx.json: syft cannot see the C libraries in the binary.
 sboms:
   - artifacts: archive
+    args: ["$artifact", "--output", "spdx-json=$document", "--enrich", "all", "--select-catalogers", "+sbom-cataloger"]
 
 signs:
   - cmd: cosign
