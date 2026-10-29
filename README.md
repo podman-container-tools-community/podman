@@ -180,6 +180,13 @@ compiled from podman's source:
   [cosign](https://github.com/sigstore/cosign) via GitHub OIDC, images are signed the
   same way, and every file in `checksums.txt` gets a GitHub build provenance
   attestation.
+- Every archive has an SPDX SBOM next to it (`<archive>.sbom.json`, listed in
+  `checksums.txt`), and every image carries one per platform as a BuildKit attestation,
+  covered by the image signature. syft finds the Go modules in the binaries; the C code
+  it cannot see there (musl, libseccomp, and the SQLite that `github.com/mattn/go-sqlite3`
+  bundles) is listed in `static-libraries.spdx.json`, which is in the archive and in the
+  image under `/usr/share/sbom/podman/`, and merged into both SBOMs. The image's SBOM:
+  `docker buildx imagetools inspect ghcr.io/podman-container-tools-community/podman:v6.1.4 --format '{{ json .SBOM }}'`.
 - The apt repository metadata (`InRelease`) and the rpm packages are additionally signed
   with a GPG key, because apt and rpm cannot verify sigstore signatures; apt verifies
   the deb packages through the checksums in the signed `InRelease`. The key is kept in

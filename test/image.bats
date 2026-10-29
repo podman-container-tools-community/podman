@@ -33,6 +33,16 @@ in_image() {
   [[ "${output}" == "podman version "* ]]
 }
 
+# hack/generate-sbom.sh; releases built before it have none.
+@test "SBOM of the static C libraries" {
+  docker exec "${CONTAINER}" test -f /usr/share/sbom/podman/static-libraries.spdx.json ||
+    skip "release without static-libraries.spdx.json"
+  run -0 --separate-stderr docker exec "${CONTAINER}" cat /usr/share/sbom/podman/static-libraries.spdx.json
+  for name in musl libseccomp sqlite; do
+    [[ "${output}" == *"\"name\": \"${name}\""* ]]
+  done
+}
+
 @test "rootless mode matches the user" {
   run -0 --separate-stderr in_image info --format '{{.Host.Security.Rootless}}'
   expect_output "$([[ "${IMAGE_USER}" == podman ]] && echo true || echo false)"
