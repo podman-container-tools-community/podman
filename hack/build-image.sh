@@ -161,6 +161,9 @@ case "${mode}" in
       exit 1
     fi
   fi
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+  fi
   echo "${target}@${digest}"
   ;;
 *)
