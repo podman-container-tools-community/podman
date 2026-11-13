@@ -15,8 +15,8 @@ set -euo pipefail
 LIBSECCOMP_VERSION=v2.6.1
 LIBSECCOMP_SHA256=501f66c667225d53791b97e1d7cf85ab764c297d04881f60f38f451c4b0ee1be
 # renovate: datasource=github-tags depName=systemd/systemd
-SYSTEMD_VERSION=v262.1
-SYSTEMD_COMMIT=73612ea502d53baf9b0df4336cfc296a7ee0d524
+SYSTEMD_VERSION=v262.2
+SYSTEMD_COMMIT=63511d7283d7d0e2a2fc28075481afaf1a7be8f5
 
 sysroot="$(realpath -m "$1")"
 work="$(mktemp -d)"
