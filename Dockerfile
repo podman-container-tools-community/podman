@@ -5,14 +5,14 @@
 # linux/<arch>/<binaries> and packaging/image/.
 # Pinned by version and index digest so image builds stay reproducible; Renovate bumps it
 # (both FROM lines name the same image).
-FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS base
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS base
 
 # Everything that has to run happens here, on the build host's platform, so no emulation
 # is needed: apk installs the target architecture's packages into a copy of the target's
 # file system, without their scripts (a modprobe for fuse-overlayfs and triggers that the
 # base image has already run). Only what changed ends up in /delta, so the final image
 # adds one layer on top of Alpine's.
-FROM --platform=$BUILDPLATFORM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS delta
+FROM --platform=$BUILDPLATFORM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS delta
 ARG TARGETARCH
 # Podman 6 needs netavark 2 and the configuration files of containers-common 0.68
 # (container-libs in Alpine), and 3.24 ships netavark 1.17 and containers-common
